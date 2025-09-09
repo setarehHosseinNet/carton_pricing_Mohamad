@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% load extra_tags %}
+
+{% block content %}
+<h3 class="mb-3">فرمول‌ها</h3>
+
+<form method="post" class="card card-body shadow-sm mb-4">
+  {% csrf_token %}
+  <div class="row g-3">
+    {% for f in formulas %}
+      <div class="col-12">
+        <label class="form-label">
+          <strong>{{ f.key }}</strong>
+          {% if labels|get_item:f.key %} — {{ labels|get_item:f.key }}{% endif %}
+          {% if f.description %} ({{ f.description }}){% endif %}
+        </label>
+        <textarea class="form-control" name="expr_{{ f.id }}" rows="2">{{ f.expression }}</textarea>
+      </div>
+    {% endfor %}
+  </div>
+  <button class="btn btn-primary mt-3">ذخیره همه</button>
+</form>
+
+<div class="card card-body shadow-sm">
+  <h5 class="mb-3">افزودن فرمول جدید</h5>
+  <form method="post">
+    {% csrf_token %}
+    {{ add_form.as_p }}
+    <button type="submit" name="add_new" class="btn btn-success">➕ افزودن</button>
+  </form>
+</div>
+
+<div class="alert alert-warning mt-3">
+  فقط عملگرهای عددی، مقایسه‌ای و شرطی کوتاه مجاز است.
+  توابع مجاز: ceil, floor, round, max, min, abs.
+  متغیّرها: A1,A2,A3,A4,I8,E15,G15,I15,E17,E20,K20,F24,sheet_width,sheet_price,M30,I41,J43,H43,E43,E46 و خروجی‌های میانی.
+</div>
+{% endblock %}
