@@ -10,7 +10,7 @@
   {% endfor %}
 {% endif %}
 
-{# خطاهای فرم/محاسبه #}
+{# خطاها #}
 {% if errors %}
   <div class="alert alert-danger">
     <strong>خطا در محاسبه/اعتبارسنجی:</strong>
@@ -69,12 +69,17 @@
     <div class="col-md-3">{{ form.A3_door_type.label_tag }} {{ form.A3_door_type }}</div>
     <div class="col-md-3">{{ form.A4_door_count.label_tag }} {{ form.A4_door_count }}</div>
 
-
-
     <div class="col-md-3">{{ form.E15_len.label_tag }} {{ form.E15_len }}</div>
     <div class="col-md-3">{{ form.G15_wid.label_tag }} {{ form.G15_wid }}</div>
     <div class="col-md-3">{{ form.I15_hgt.label_tag }} {{ form.I15_hgt }}</div>
-    <div class="col-md-3">{{ form.E17_lip.label_tag }} {{ form.E17_lip }}</div>
+
+    {# --- فیلد لب درب: به صورت شرطی نمایش داده می‌شود --- #}
+    <div class="col-md-3" id="field-e17-wrap">
+      {{ form.E17_lip.label_tag }} {{ form.E17_lip }}
+      <div class="form-text text-muted" id="field-e17-hint" style="display:none">
+        اگر مخفی شد یعنی مقدارش با فرمول محاسبه می‌شود.
+      </div>
+    </div>
 
     <div class="col-md-3">{{ form.D31_flute.label_tag }} {{ form.D31_flute }}</div>
     <div class="col-md-3">{{ form.payment_type.label_tag }} {{ form.payment_type }}</div>
@@ -84,51 +89,62 @@
 
     <div class="col-12 form-check mt-2">{{ form.save_record }} {{ form.save_record.label_tag }}</div>
 
-    {# ── گزینه‌های عرض ورق (اگر در کانتکست باشد) ── #}
-{% if sheet_options %}
-<div class="card shadow-sm mb-3">
-  <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
-  <div class="card-body">
-    <p class="text-muted mb-2">
-      برای K20 = <strong>{{ result_preview.K20 }}</strong> و E20 = <strong>{{ result_preview.E20 }}</strong>،
-      گزینه‌های زیر با دورریز &lt; 11cm پیشنهاد می‌شوند. یکی را انتخاب کنید و «محاسبه» را بزنید.
-    </p>
-
-    <div class="table-responsive">
-      <table class="table table-sm align-middle">
-        <thead>
-          <tr>
-            <th>انتخاب</th>
-            <th>عرض ورق (cm)</th>
-            <th>F24 (تعداد/ورق)</th>
-            <th>دورریز (cm)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for o in sheet_options %}
-          <tr>
-            <td><input type="radio" name="sheet_choice" value="{{ o.width }}" {% if forloop.first %}checked{% endif %}></td>
-            <td>{{ o.width|floatformat:0 }}</td>
-            <td>{{ o.count }}</td>
-            <td>{{ o.waste|floatformat:1 }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="col-12">
+      <div class="d-flex align-items-center gap-3">
+        <span id="a6_display" class="text-secondary small">A6 = —</span>
+        <button id="btnSubmit" class="btn btn-primary">
+          <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+          محاسبه
+        </button>
+      </div>
     </div>
-
-    {# حفظ تمام مقادیر فعلی فرم به صورت hidden #}
-    {% for field in form %}
-      {% if field.name != "sheet_choice" %}
-        <input type="hidden" name="{{ field.name }}" value="{{ field.value|default_if_none:'' }}">
-      {% endif %}
-    {% endfor %}
-
-    <button class="btn btn-primary mt-2">محاسبه</button>
   </div>
-</div>
-{% endif %}
 
+  {# ── گزینه‌های عرض ورق (اگر در کانتکست باشد) ── #}
+  {% if sheet_options %}
+  <div class="card shadow-sm mt-4">
+    <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
+    <div class="card-body">
+      <p class="text-muted mb-2">
+        برای K20 = <strong>{{ result_preview.K20 }}</strong> و E20 = <strong>{{ result_preview.E20 }}</strong>،
+        گزینه‌های زیر با دورریز &lt; 11cm پیشنهاد می‌شوند. یکی را انتخاب کنید و «محاسبه» را بزنید.
+      </p>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>انتخاب</th>
+              <th>عرض ورق (cm)</th>
+              <th>F24 (تعداد/ورق)</th>
+              <th>دورریز (cm)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for o in sheet_options %}
+            <tr>
+              <td><input type="radio" name="sheet_choice" value="{{ o.width }}" {% if forloop.first %}checked{% endif %}></td>
+              <td>{{ o.width|floatformat:0 }}</td>
+              <td>{{ o.count }}</td>
+              <td>{{ o.waste|floatformat:1 }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# حفظ کامل وضعیت فرم #}
+      {% for field in form %}
+        {% if field.name != "sheet_choice" %}
+          <input type="hidden" name="{{ field.name }}" value="{{ field.value|default_if_none:'' }}">
+        {% endif %}
+      {% endfor %}
+
+      <button class="btn btn-primary mt-2">محاسبه</button>
+    </div>
+  </div>
+  {% endif %}
+</form>
 
 {% if result %}
 <div class="card shadow-sm">
@@ -188,18 +204,15 @@
 
   // نمایش زنده‌ی A6
   function updateA6(){
-    const a1 = document.querySelector('input[name="A1_layers"]:checked');
-    const a2 = document.querySelector('input[name="A2_pieces"]:checked');
-    const a3 = document.querySelector('input[name="A3_door_type"]:checked');
-    const a4 = document.querySelector('input[name="A4_door_count"]:checked');
+    const a1 = document.querySelector('input[name="A1_layers"]:checked') || document.getElementById('id_A1_layers');
+    const a2 = document.querySelector('input[name="A2_pieces"]:checked') || document.getElementById('id_A2_pieces');
+    const a3 = document.querySelector('input[name="A3_door_type"]:checked') || document.getElementById('id_A3_door_type');
+    const a4 = document.querySelector('input[name="A4_door_count"]:checked') || document.getElementById('id_A4_door_count');
     const el = document.getElementById('a6_display');
-    if(a1 && a2 && a3 && a4){
-      el.textContent = "A6 = " + a1.value + a2.value + a3.value + a4.value;
-    } else {
-      el.textContent = "A6 = —";
-    }
+    const v1 = a1?.value || '', v2 = a2?.value || '', v3 = a3?.value || '', v4 = a4?.value || '';
+    el.textContent = (v1 && v2 && v3 && v4) ? ("A6 = " + v1+v2+v3+v4) : "A6 = —";
   }
-  document.querySelectorAll('input[name="A1_layers"],input[name="A2_pieces"],input[name="A3_door_type"],input[name="A4_door_count"]').forEach(el=>{
+  document.querySelectorAll('#priceForm select, #priceForm input[type=radio]').forEach(el=>{
     el.addEventListener('change', updateA6);
   });
   updateA6();
@@ -243,7 +256,7 @@
 
   // افزودن سریع شماره تماس
   document.getElementById('btnAddPhone')?.addEventListener('click', async ()=>{
-    if(!customerSel.value){ alert('ابتدا مشتری را انتخاب کنید'); return; }
+    if(!customerSel?.value){ alert('ابتدا مشتری را انتخاب کنید'); return; }
     const number = prompt('شماره تماس'); if(!number) return;
     const label = prompt('برچسب')||'';
     const fd = new URLSearchParams({customer:customerSel.value, number, label});
@@ -257,6 +270,31 @@
     } else { alert('خطا در افزودن شماره'); }
   });
 
+  // نمایش/مخفی کردن فیلد لب درب (E17_lip)
+  function toggleE17(){
+    const a2 = document.getElementById('id_A2_pieces');      // چند تیکه
+    const a3 = document.getElementById('id_A3_door_type');   // نوع درب
+    const wrap = document.getElementById('field-e17-wrap');
+    const hint = document.getElementById('field-e17-hint');
+    const e17 = document.getElementById('id_E17_lip');
+
+    // مقدارهای واقعی گزینه‌ها را با مقادیر مدل خودت هماهنگ کن:
+    // فرض: چهار تیکه = 4 ، درب باز = 2
+    const show = (a2 && a2.value === '4') || (a3 && a3.value === '2');
+
+    if(show){
+      wrap.style.display = '';
+      hint.style.display = 'block';
+    }else{
+      wrap.style.display = 'none';
+      hint.style.display = 'none';
+      if(e17){ e17.value = ''; }  // وقتی محاسباتی است، مقدار دستی پاک شود
+    }
+  }
+  document.getElementById('id_A2_pieces')?.addEventListener('change', toggleE17);
+  document.getElementById('id_A3_door_type')?.addEventListener('change', toggleE17);
+  window.addEventListener('load', toggleE17);
+
   // اسپینر دکمه محاسبه
   const btnSubmit = document.getElementById('btnSubmit');
   const btnSpinner = document.getElementById('btnSpinner');
@@ -266,4 +304,53 @@
   });
 })();
 </script>
+    <script>
+(function () {
+  // کمک‌کار: مقدار فعلی یک فیلد را (select یا radio-group) برمی‌گرداند
+  function getFieldValue(name) {
+    // اول بر اساس id استاندارد جنگو (id_<name>) سعی می‌کنیم
+    const byId = document.getElementById('id_' + name);
+    if (byId) return byId.value;
+
+    // اگر رادیویی بود
+    const radios = document.querySelectorAll('input[name="' + name + '"]');
+    if (radios.length) {
+      const checked = Array.from(radios).find(r => r.checked);
+      return checked ? checked.value : '';
+    }
+    return '';
+  }
+
+  function updateA6() {
+    const a1 = getFieldValue('A1_layers') || '0';
+    const a2 = getFieldValue('A2_pieces') || '0';
+    const a3 = getFieldValue('A3_door_type') || '0';
+    const a4 = getFieldValue('A4_door_count') || '0';
+    const code = a1 + a2 + a3 + a4;
+
+    // نمایش در المنتی که توی قالب داری (مثلاً <strong id="a6_display">)
+    const el = document.getElementById('a6_display');
+    if (el) el.textContent = 'A6: ' + (code.match(/^\d{4}$/) ? code : '—');
+  }
+
+  // به تغییرات این چهار فیلد گوش کن
+  ['A1_layers','A2_pieces','A3_door_type','A4_door_count'].forEach(name => {
+    const elById = document.getElementById('id_' + name);
+    if (elById) {
+      elById.addEventListener('change', updateA6);
+      elById.addEventListener('input', updateA6);
+    } else {
+      // اگر رادیویی باشد
+      document.querySelectorAll('input[name="' + name + '"]').forEach(r => {
+        r.addEventListener('change', updateA6);
+        r.addEventListener('input', updateA6);
+      });
+    }
+  });
+
+  // بار اول صفحه
+  document.addEventListener('DOMContentLoaded', updateA6);
+})();
+</script>
+
 {% endblock %}

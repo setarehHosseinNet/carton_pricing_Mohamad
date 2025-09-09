@@ -78,10 +78,6 @@ def DBG(*parts: Any) -> None:
     print(msg)
 
 
-# ───────────────────────────── small helpers ──────────────────────
-def q2(val: float | Decimal, places: str) -> Decimal:
-    """گرد کردن با ROUND_HALF_UP (مثلاً places='0.01')."""
-    return Decimal(val).quantize(Decimal(places), rounding=ROUND_HALF_UP)
 
 
 # ───────────────────────────── API (Ajax) ─────────────────────────
@@ -171,31 +167,62 @@ def formulas_view(request: HttpRequest) -> HttpResponse:
 
 # ───────────────────────────── price form view ────────────────────
 from typing import Any
+from decimal import Decimal, ROUND_HALF_UP
+import math, re
+from django.contrib import messages
+from django.shortcuts import render
+from django.http import HttpRequest, HttpResponse
+
+from .models import CalcFormula, PriceQuotation
+from .forms import PriceForm
+from .settings_api import get_settings, ensure_default_formulas
+from .utils import (
+    build_resolver, to_float,
+    choose_per_sheet_and_width, compute_sheet_options, render_formula
+)
+
+def q2(val: float | Decimal, places: str) -> Decimal:
+    return Decimal(val).quantize(Decimal(places), rounding=ROUND_HALF_UP)
+
+def _as_number(x: Any, fallback: float) -> float:
+    """هر چیزی که بشود به عدد تبدیل کرد را برگردان؛ در غیر این صورت fallback."""
+    try:
+        if x is None:
+            return fallback
+        if isinstance(x, str):
+            s = x.strip()
+            if s == "":
+                return fallback
+            return float(s.replace(",", ""))
+        return float(x)
+    except Exception:
+        return fallback
+
+from typing import Any
 import math, re
 from decimal import Decimal
-
+from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
-from django.contrib import messages
-
 from .forms import PriceForm
 from .models import CalcFormula, PriceQuotation
+from .settings_api import get_settings, ensure_default_formulas
 from .utils import (
-    build_resolver,
-    to_float,
-    choose_per_sheet_and_width,
-    compute_sheet_options,   # ← گزینه‌های عرض ورق (از بزرگ‌ترین شروع می‌کند)
+    to_float, build_resolver, render_formula,
+    compute_sheet_options, choose_per_sheet_and_width
 )
+
+# گرد کردن کمکی
+def q2(val: float | Decimal, places: str) -> Decimal:
+    return Decimal(val).quantize(Decimal(places))
 
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
     فرم قیمت:
-    - خواندن ورودی‌ها از فرم
-    - محاسبه‌ی E20/K20
-    - پیشنهاد چند «عرض ورق» از بزرگ‌ترین به کوچک‌ترین (دورریز < 11cm)
-      و امکان انتخاب کاربر (sheet_choice)
-    - در صورت نبود انتخاب، انتخاب خودکار بهترین گزینه و ادامه محاسبات
-    - ارزیابی داینامیک بقیه فرمول‌ها و نگاشت به مدل
+    - ورودی‌ها از فرم
+    - محاسبه E20/K20 (+ پشتیبانی از فرمول‌های E17, I17, K15 در صورت وجود)
+    - پیشنهاد عرض ورق از بزرگ‌ترین به کوچک‌ترین (waste<11) + انتخاب کاربر
+    - ارزیابی سایر فرمول‌ها و نگاشت به مدل
     """
     ensure_default_formulas()
     bs = get_settings()
@@ -209,11 +236,12 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             context["errors"] = form.errors
             return render(request, "carton_pricing/price_form.html", context)
 
-        # مدل (بدون ذخیره) + محاسبه A6
         obj: PriceQuotation = form.save(commit=False)
+
+        # A6 کُد چهارتایی
         obj.A6_sheet_code = int(f"{obj.A1_layers}{obj.A2_pieces}{obj.A3_door_type}{obj.A4_door_count}")
 
-        # فرمول‌ها از DB (خام، اکسل‌طور)
+        # فرمول‌های خام (اکسل‌طور) از DB
         formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormula.objects.all()}
 
         cd = form.cleaned_data
@@ -227,7 +255,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "E15": to_float(cd.get("E15_len"), 0.0),
             "G15": to_float(cd.get("G15_wid"), 0.0),
             "I15": to_float(cd.get("I15_hgt"), 0.0),
-            "E17": to_float(cd.get("E17_lip"), 0.0),
+            "E17": to_float(cd.get("E17_lip"), 0.0),   # ورودی فرم برای لب درب
             "E46": to_float(cd.get("E46_round_adjust"), 0.0),
             "I41": to_float(bs.profit_rate_percent, 0.0),
             "J43": to_float(bs.interface_cost, 0.0),
@@ -235,85 +263,108 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "E43": to_float(bs.shipping_cost, 0.0),
             "M30": to_float(bs.overhead_per_meter, 0.0),
         }
-        # A6 هم در seed
         seed_vars["A6"] = int(f"{seed_vars['A1']}{seed_vars['A2']}{seed_vars['A3']}{seed_vars['A4']}")
 
-        # قیمت ورق بر اساس نوع پرداخت
-        seed_vars["sheet_price"] = float(
-            bs.sheet_price_cash if cd.get("payment_type") == "cash" else bs.sheet_price_credit
-        )
+        # قیمت ورق بر اساس شیوه پرداخت
+        sheet_price = float(bs.sheet_price_cash if cd.get("payment_type") == "cash"
+                            else bs.sheet_price_credit)
+        seed_vars["sheet_price"] = sheet_price
 
-        # snapshot تنظیمات داخل رکورد خروجی
+        # اسنپ‌شات تنظیمات داخل آبجکت خروجی
         obj.I41_profit_rate = Decimal(bs.profit_rate_percent)
         obj.E43_shipping    = Decimal(bs.shipping_cost)
         obj.H43_pallet      = Decimal(bs.pallet_cost)
         obj.J43_interface   = Decimal(bs.interface_cost)
 
-        # Resolver: تبدیل اکسل→پایتون + ارزیابی امن
+        # Resolver (اکسل→پایتون) + فرمول‌های پایتونی برای دیباگ
         resolve, var, formulas_py = build_resolver(formulas_raw, seed_vars)
-        context["debug_formulas"] = formulas_py  # برای بخش دیباگ قالب
+        context["debug_formulas"] = {k: render_formula(expr, seed_vars) for k, expr in formulas_py.items()}
 
         try:
-            # 1) ابتدا E20 و K20
+            # --- E17: اگر فرمول تعریف شده و خروجی‌اش ""/None نبود، همان را بگیر؛
+            #          در غیر این صورت از ورودی فرم (seed_vars['E17']) استفاده کن.
+            if "E17" in formulas_py:
+                v_e17 = resolve("E17")
+                if v_e17 is None or (isinstance(v_e17, str) and v_e17.strip() == ""):
+                    var["E17"] = seed_vars["E17"]
+                else:
+                    var["E17"] = float(v_e17)
+            else:
+                var["E17"] = seed_vars["E17"]
+
+            # --- I17: در صورت وجود فرمول
+            if "I17" in formulas_py:
+                try:
+                    var["I17"] = float(resolve("I17"))
+                except Exception:
+                    var["I17"] = 0.0
+            else:
+                var["I17"] = 0.0
+
+            # --- K15: در صورت وجود فرمول
+            if "K15" in formulas_py:
+                try:
+                    var["K15"] = float(resolve("K15"))
+                except Exception:
+                    var["K15"] = 0.0
+            else:
+                var["K15"] = 0.0
+
+            # --- E20 / K20
             var["E20"] = float(resolve("E20"))
             obj.E20_industrial_len = q2(var["E20"], "0.01")
 
             var["K20"] = float(resolve("K20"))
             obj.K20_industrial_wid = q2(var["K20"], "0.01")
 
-            # 2) انتخاب عرض ورق و F24
+            # --- پیشنهاد عرض شیت: از بزرگ‌ترین به کوچک‌ترین + فقط waste<11
             required_w = var["K20"]
-
-            # fixed_widths می‌تواند لیست یا رشته باشد
             fw = bs.fixed_widths or []
             if isinstance(fw, str):
                 fw = [w for w in re.split(r"[,\s]+", fw) if w]
-            fixed_widths = [to_float(x, 0.0) for x in fw if str(x).strip()]
+            fixed_widths = [to_float(x, 0.0) for x in fw if to_float(x, 0.0) > 0]
 
-            # آیا کاربر قبلاً یکی را انتخاب کرده؟
-            chosen_from_post = to_float(request.POST.get("sheet_choice"), 0.0)
+            options = compute_sheet_options(required_width_cm=required_w,
+                                            fixed_widths=fixed_widths,
+                                            max_waste_cm=11.0,
+                                            max_options=6)
+            context["sheet_options"] = options
+            context["result_preview"] = {
+                "E20": q2(var["E20"], "0.01"),
+                "K20": q2(required_w, "0.01"),
+            }
 
-            if chosen_from_post > 0:
-                chosen_w = float(chosen_from_post)
-                per_sheet_count = int(chosen_w // required_w) if required_w > 0 else 0
-                waste = chosen_w - per_sheet_count * required_w
-                warn = not (0 <= waste < 11.0)
-                note = f"عرض ورق = {chosen_w:g}cm ، دورریز ≈ {waste:.1f}cm"
+            # اگر کاربر یکی از گزینه‌های جدول را انتخاب کرده باشد همان را اعمال کن
+            picked = to_float(request.POST.get("sheet_choice"), 0.0)
+            if picked and any(abs(picked - o["width"]) < 1e-6 for o in options):
+                chosen_w = picked
+                count = int(chosen_w // required_w)
+                waste = chosen_w - count * required_w
+                warn = waste >= 11.0
+                note = f"طول ورق (E20) = {var['E20']:.2f}cm ، عرض ورق = {chosen_w:g}cm ، دورریز ≈ {waste:.1f}cm"
             else:
-                # گزینه‌ها را از بزرگ‌ترین عرض به کوچک‌تر پیشنهاد بده (دورریز < 11)
-                options = compute_sheet_options(required_w, fixed_widths, max_waste_cm=11.0, max_options=6)
-                if options:
-                    # نمایش کارت انتخاب به کاربر و توقف محاسبه‌ی نهایی
-                    context.update({
-                        "sheet_options": options,
-                        "result_preview": {
-                            "E20": q2(var["E20"], "0.01"),
-                            "K20": q2(var["K20"], "0.01"),
-                        },
-                        "form": form,
-                    })
-                    return render(request, "carton_pricing/price_form.html", context)
-
-                # اگر گزینهٔ مناسبی نبود، مانند قبل بهترین را خودکار انتخاب کن
-                per_sheet_count, chosen_w, waste, warn, note = choose_per_sheet_and_width(
-                    required_w, fixed_widths, e20_len_cm=var["E20"]
+                # انتخاب خودکار بهترین
+                count, chosen_w, waste, warn, note = choose_per_sheet_and_width(
+                    required_width_cm=required_w,
+                    fixed_widths=fixed_widths,
+                    max_waste_cm=11.0,
+                    e20_len_cm=var["E20"],
                 )
 
-            # اعمال انتخاب (چه کاربر انتخاب کرده باشد چه خودکار)
-            obj.F24_per_sheet_count = max(1, int(per_sheet_count))
+            obj.F24_per_sheet_count = max(1, int(count))
             obj.chosen_sheet_width  = q2(chosen_w, "0.01")
             obj.waste_warning       = bool(warn)
             obj.note_message        = note
 
-            # این‌ها برای ادامه محاسبات لازمند
-            var["F24"]        = float(obj.F24_per_sheet_count)
+            # برای ادامهٔ فرمول‌ها
+            var["F24"] = float(obj.F24_per_sheet_count)
             var["sheet_width"] = float(chosen_w)
 
-            # 3) ارزیابی سایر خروجی‌ها
+            # سایر خروجی‌ها
             for key in ["E28", "E38", "I38", "E41", "E40", "M40", "M41", "H46", "J48", "E48"]:
                 var[key] = float(resolve(key))
 
-            # 4) نگاشت به مدل + گرد کردن‌ها
+            # نگاشت به مدل (نمایش نتایج)
             obj.E28_carton_consumption = q2(var["E28"], "0.0001")
             obj.E38_sheet_area_m2      = q2(var["E38"], "0.0001")
             obj.I38_sheet_count        = int(math.ceil(var["I38"])) if isinstance(var["I38"], float) else int(var["I38"])
@@ -325,29 +376,30 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             obj.J48_tax                = q2(var["J48"], "0.01")
             obj.E48_price_with_tax     = q2(var["E48"], "0.01")
 
+            # اگر مدل فیلدی برای ذخیرهٔ E17/K15 داری، اینجا می‌توانی ست کنی:
+            obj.E17_lip_value  = q2(var["E17"], "0.01")
+            obj.K15_sheet_calc = q2(var["K15"], "0.01")
+
         except ValueError as e:
-            # خطای سینتکس/نام ناشناخته داخل فرمول‌ها
             context["errors"] = {"__all__": [str(e)]}
             context["vars"] = var
             return render(request, "carton_pricing/price_form.html", context)
 
-        # ذخیره در صورت خواست کاربر
         if form.cleaned_data.get("save_record"):
             obj.save()
             messages.success(request, "برگه قیمت ذخیره شد.")
 
+        # vars را برای نمایش/دیباگ به قالب بده (E17/K15 هم داخلش هستند)
         context.update({"result": obj, "vars": var})
         return render(request, "carton_pricing/price_form.html", context)
 
     # GET
-    form = PriceForm(
-        initial={
-            "A1_layers": 1,
-            "A2_pieces": 1,
-            "A3_door_type": 1,
-            "A4_door_count": 1,
-            "payment_type": "cash",
-        }
-    )
+    form = PriceForm(initial={
+        "A1_layers": 1,
+        "A2_pieces": 1,
+        "A3_door_type": 1,
+        "A4_door_count": 1,
+        "payment_type": "cash",
+    })
     context["form"] = form
     return render(request, "carton_pricing/price_form.html", context)
