@@ -69,9 +69,7 @@
     <div class="col-md-3">{{ form.A3_door_type.label_tag }} {{ form.A3_door_type }}</div>
     <div class="col-md-3">{{ form.A4_door_count.label_tag }} {{ form.A4_door_count }}</div>
 
-    <div class="col-12">
-      <strong id="a6_display">A6 = —</strong>
-    </div>
+
 
     <div class="col-md-3">{{ form.E15_len.label_tag }} {{ form.E15_len }}</div>
     <div class="col-md-3">{{ form.G15_wid.label_tag }} {{ form.G15_wid }}</div>
@@ -87,55 +85,50 @@
     <div class="col-12 form-check mt-2">{{ form.save_record }} {{ form.save_record.label_tag }}</div>
 
     {# ── گزینه‌های عرض ورق (اگر در کانتکست باشد) ── #}
-    {% if sheet_options %}
-      <div class="col-12">
-        <div class="card shadow-sm">
-          <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
-          <div class="card-body">
-            <p class="text-muted mb-2">
-              برای K20 = <strong>{{ result_preview.K20 }}</strong> و طول ورق (E20) =
-              <strong>{{ result_preview.E20 }}</strong>، گزینه‌های زیر با دورریز کمتر از 11cm پیشنهاد می‌شوند.
-            </p>
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead>
-                  <tr>
-                    <th>انتخاب</th>
-                    <th>عرض ورق</th>
-                    <th>F24 (تعداد/ورق)</th>
-                    <th>دورریز تقریبی</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for o in sheet_options %}
-                  <tr>
-                    <td>
-                      <input type="radio" name="sheet_choice" value="{{ o.width }}"
-                             {% if forloop.first %}checked{% endif %}>
-                    </td>
-                    <td>{{ o.width|floatformat:0 }} cm</td>
-                    <td>{{ o.count }}</td>
-                    <td>{{ o.waste|floatformat:1 }} cm</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-            <small class="text-muted">یک گزینه را انتخاب کنید و دکمهٔ «محاسبه» را بزنید.</small>
-          </div>
-        </div>
-      </div>
-    {% endif %}
+{% if sheet_options %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
+  <div class="card-body">
+    <p class="text-muted mb-2">
+      برای K20 = <strong>{{ result_preview.K20 }}</strong> و E20 = <strong>{{ result_preview.E20 }}</strong>،
+      گزینه‌های زیر با دورریز &lt; 11cm پیشنهاد می‌شوند. یکی را انتخاب کنید و «محاسبه» را بزنید.
+    </p>
 
-    <div class="col-12 mt-2 d-flex align-items-center gap-2">
-      <button type="submit" class="btn btn-primary" id="btnSubmit">
-        محاسبه
-        <span class="spinner-border spinner-border-sm d-none" id="btnSpinner" role="status" aria-hidden="true"></span>
-      </button>
-      <small class="text-muted">پس از محاسبه، نتایج پایین نمایش داده می‌شود.</small>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>انتخاب</th>
+            <th>عرض ورق (cm)</th>
+            <th>F24 (تعداد/ورق)</th>
+            <th>دورریز (cm)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in sheet_options %}
+          <tr>
+            <td><input type="radio" name="sheet_choice" value="{{ o.width }}" {% if forloop.first %}checked{% endif %}></td>
+            <td>{{ o.width|floatformat:0 }}</td>
+            <td>{{ o.count }}</td>
+            <td>{{ o.waste|floatformat:1 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+
+    {# حفظ تمام مقادیر فعلی فرم به صورت hidden #}
+    {% for field in form %}
+      {% if field.name != "sheet_choice" %}
+        <input type="hidden" name="{{ field.name }}" value="{{ field.value|default_if_none:'' }}">
+      {% endif %}
+    {% endfor %}
+
+    <button class="btn btn-primary mt-2">محاسبه</button>
   </div>
-</form>
+</div>
+{% endif %}
+
 
 {% if result %}
 <div class="card shadow-sm">

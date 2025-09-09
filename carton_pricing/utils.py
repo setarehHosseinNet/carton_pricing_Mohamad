@@ -6,7 +6,7 @@
 - safe_eval مبتنی بر AST با توابع محدود
 - تبدیل عبارات اکسل‌مانند به پایتون (IF/AND/OR/NOT/MIN/MAX/ABS/ROUND/CEIL/CEILING/FLOOR/ROUNDUP/INT)
 - نرمال‌سازی اعداد فارسی
-- انتخاب بهترین عرض ورق با حداقل دورریز
+- انتخاب بهترین عرض ورق با حداقل دورریز + تولید گزینه‌ها
 """
 
 from __future__ import annotations
@@ -14,10 +14,13 @@ from __future__ import annotations
 import ast
 import math
 import re
+import sys
 from collections import defaultdict, deque
 from typing import Any, Callable
-import sys
-def UDBG(*a):  # util debug
+
+# ─────────────────────────────────────────────────────────────────────────────
+# دیباگ ساده روی stderr
+def UDBG(*a) -> None:
     print(*a, file=sys.stderr, flush=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +66,8 @@ def safe_eval_expr(expr: str, namespace: dict) -> Any:
 # ─────────────────────────────────────────────────────────────────────────────
 # نرمال‌سازی ورودی‌ها (اعداد فارسی → لاتین، حذف '=' اکسل و ...)
 
-# نکته: «٪» را عمداً مپ نمی‌کنیم چون در پایتون % عملگر باقیمانده است.
+# توجه: «٪» را مستقیماً به کاراکتر % نگاشت می‌کنیم (در پایتون عملگر باقیمانده است؛
+# اگر کسی واقعاً درصدِ عددی می‌خواهد باید در فرمول خودش تقسیم بر 100 کند).
 _FA_TO_EN = str.maketrans("۰۱۲۳۴۵۶۷۸۹٬٫،٪؛", "0123456789,.,%;")
 
 def normalize_text(s: Any) -> str:
@@ -114,7 +118,8 @@ def _split_args(s: str) -> list[str]:
     - کوتیشن‌های داخل رشته‌ها
     - پشتیبانی از هر دو جداکننده: ',' و ';'
     """
-    args, buf = [], []
+    args: list[str] = []
+    buf: list[str] = []
     lvl = 0
     in_str = False
     quote = ""
@@ -123,7 +128,7 @@ def _split_args(s: str) -> list[str]:
     while i < len(s):
         ch = s[i]
 
-        # مدیریت رشته‌ها "..."
+        # مدیریت رشته‌ها
         if ch in ("'", '"'):
             if not in_str:
                 in_str = True
@@ -136,20 +141,16 @@ def _split_args(s: str) -> list[str]:
             continue
 
         if not in_str:
-            if ch == '(':
+            if ch == "(":
                 lvl += 1
-                buf.append(ch)
-                i += 1
-                continue
-            if ch == ')':
+                buf.append(ch); i += 1; continue
+            if ch == ")":
                 lvl -= 1
-                buf.append(ch)
-                i += 1
-                continue
-            # جداکننده آرگومان‌ها در سطح صفر: کاما یا سمی‌کالن
-            if lvl == 0 and (ch == ',' or ch == ';'):
-                arg = ''.join(buf).strip()
-                if arg != '':
+                buf.append(ch); i += 1; continue
+            # جداکننده آرگومان‌ها در سطح صفر
+            if lvl == 0 and (ch == "," or ch == ";"):
+                arg = "".join(buf).strip()
+                if arg != "":
                     args.append(arg)
                 buf = []
                 i += 1
@@ -158,13 +159,16 @@ def _split_args(s: str) -> list[str]:
         buf.append(ch)
         i += 1
 
-    tail = ''.join(buf).strip()
-    if tail != '':
+    tail = "".join(buf).strip()
+    if tail != "":
         args.append(tail)
     return args
 
 
-def _replace_fn(name: str, text: str, conv, flags=0):
+def _replace_fn(name: str, text: str, conv: Callable[[list[str]], str], flags: int = 0) -> str:
+    """
+    جایگزینی بازگشتی NAME(…)، فقط برای توابع ساختاری (IF/AND/OR/NOT).
+    """
     pat = re.compile(rf"\b{name}\s*\(", flags=flags)
     guard = 0
     while True:
@@ -182,24 +186,24 @@ def _replace_fn(name: str, text: str, conv, flags=0):
                 lvl += 1
             elif text[j] == ")":
                 lvl -= 1
-        inner = text[i+1:j]
+        inner = text[i + 1 : j]
         args = _split_args(inner)
         rep = conv(args)
-        # اگر خروجی هیچ تغییری نداد، از حلقه خارج شو تا لوپ نشود
-        orig = text[m.start():j+1]
-        if rep == orig:
+        orig = text[m.start() : j + 1]
+        if rep == orig:  # جلوگیری از لوپ
             break
-        text = text[:m.start()] + rep + text[j+1:]
+        text = text[: m.start()] + rep + text[j + 1 :]
         guard += 1
     return text
-
 
 
 def excel_to_python(expr: str) -> str:
     """
     تبدیل فرمول اکسل‌مانند به پایتون امن.
-    فقط IF/AND/OR/NOT با _replace_fn بازنویسی می‌شوند (ساختاری).
-    بقیه توابع اکسل صرفاً به معادلِ پایتون lowercase می‌شوند تا لوپ ایجاد نشود.
+    - عملگرها: <> → != ، ^ → ** ، = مقایسه‌ای → ==
+    - TRUE/FALSE → True/False
+    - توابع ساختاری (IF/AND/OR/NOT) به‌صورت بازنویسی ساختاری
+    - سایر توابع با نگاشت ساده به معادل‌های پایتون
     """
     s = normalize_text(expr)
 
@@ -212,24 +216,28 @@ def excel_to_python(expr: str) -> str:
     # '=' مقایسه‌ای → '==' (به‌جز >=, <=, !=, ==)
     s = re.sub(r"(?<![<>!=])=(?!=)", "==", s)
 
-    # ── 1) فقط توابع ساختاری با _replace_fn ───────────────────────────────
-    def conv_if(args):
+    # ── توابع ساختاری ───────────────────────────────────────────────
+    def conv_if(args: list[str]) -> str:
         if len(args) != 3:
-            return f"({args[1]} if ({args[0]}) else {args[2]})" if len(args) >= 3 else "(" + ",".join(args) + ")"
+            # تحمل خطا
+            return (
+                f"({args[1]} if ({args[0]}) else {args[2]})"
+                if len(args) >= 3 else
+                "(" + ",".join(args) + ")"
+            )
         c, a, b = args
         return f"({a} if ({c}) else {b})"
 
-    def conv_and(args): return "(" + " and ".join(args) + ")"
-    def conv_or(args):  return "(" + " or ".join(args) + ")"
-    def conv_not(args):
+    def conv_and(args: list[str]) -> str: return "(" + " and ".join(args) + ")"
+    def conv_or(args: list[str])  -> str: return "(" + " or ".join(args) + ")"
+    def conv_not(args: list[str]) -> str:
         x = args[0] if args else ""
         return f"(not ({x}))"
 
-    # ── فقط توابع ساختاری با replace ساختاری و case-sensitive ──
     for name, conv in [("IF", conv_if), ("AND", conv_and), ("OR", conv_or), ("NOT", conv_not)]:
-        s = _replace_fn(name, s, conv, flags=0)  # مهم: بدون re.I
+        s = _replace_fn(name, s, conv, flags=0)  # عمدی: case-sensitive
 
-    # ── بقیه توابع با نگاشت ساده و re.I ──
+    # ── نگاشت سادهٔ باقی توابع ──────────────────────────────────────
     SIMPLE_MAP = {
         r"\bMIN\s*\(": "min(",
         r"\bMAX\s*\(": "max(",
@@ -239,24 +247,6 @@ def excel_to_python(expr: str) -> str:
         r"\bFLOOR\s*\(": "floor(",
         r"\bROUNDUP\s*\(": "ceil(",
         r"\bINT\s*\(": "int(",
-    }
-    for pat, repl in SIMPLE_MAP.items():
-        s = re.sub(pat, repl, s, flags=re.I)
-
-    # ── 2) مپِ ساده‌ی بقیه توابع (بدون replace بازگشتی) ──────────────────
-    #     فقط به lowercase یا معادل مستقیم پایتون تبدیل می‌کنیم تا لوپ نشود.
-    SIMPLE_MAP = {
-        # اکسل → پایتون
-        r"\bMIN\s*\(": "min(",
-        r"\bMAX\s*\(": "max(",
-        r"\bABS\s*\(": "abs(",
-        r"\bROUND\s*\(": "round(",
-        r"\bCEIL\s*\(": "ceil(",
-        r"\bCEILING\s*\(": "ceil(",
-        r"\bFLOOR\s*\(": "floor(",
-        r"\bINT\s*\(": "int(",
-        # ROUNDUP را به ceil نگاشت می‌کنیم (ساده‌شده)
-        r"\bROUNDUP\s*\(": "ceil(",
     }
     for pat, repl in SIMPLE_MAP.items():
         s = re.sub(pat, repl, s, flags=re.I)
@@ -272,20 +262,21 @@ class FormulaEngine:
     formulas: dict[str, str]  →  {'E20': 'E15 + ...', 'K20': '...', 'X1':'...'}
     base_vars: dict[str, Any] →  ورودی‌ها/ثابت‌ها/اعداد اولیه
     """
-    def __init__(self, formulas: dict, base_vars: dict):
+    def __init__(self, formulas: dict[str, str], base_vars: dict[str, Any]):
         self.formulas = dict(formulas or {})
-        self.vars = dict(base_vars or {})
+        self.vars     = dict(base_vars or {})
         self.cache: dict[str, Any] = {}
 
-        # گراف وابستگی‌ها برای تشخیص حلقه و ترتیب محاسبه
-        self.deps: dict[str, list[str]] = {k: [n for n in extract_names(expr) if n != k]
-                                           for k, expr in self.formulas.items()}
+        # گراف وابستگی‌ها
+        self.deps: dict[str, list[str]] = {
+            k: [n for n in extract_names(expr) if n != k]
+            for k, expr in self.formulas.items()
+        }
         UDBG("[ENG] init formulas=", list(self.formulas.keys()))
         UDBG("[ENG] base_vars keys=", list(self.vars.keys()))
 
     def topo_order(self) -> list[str]:
         UDBG("[ENG] topo_order start")
-        """محاسبه ترتیب توپولوژیک. در صورت حلقه، خطا می‌دهد."""
         indeg = {k: 0 for k in self.formulas}
         graph: dict[str, list[str]] = defaultdict(list)
         for k, ns in self.deps.items():
@@ -314,7 +305,7 @@ class FormulaEngine:
         گزارش نام‌های گمشده و حلقه‌ها را برمی‌گرداند (قبل از ارزیابی).
         خروجی: dict[key] = [missing names]
         """
-        _ = self.topo_order()  # حلقه؟ اگر باشد خطا می‌دهد
+        _ = self.topo_order()  # اگر حلقه باشد، همینجا خطا می‌دهد
         missing: dict[str, list[str]] = {}
         for k, expr in self.formulas.items():
             names = extract_names(expr)
@@ -326,12 +317,10 @@ class FormulaEngine:
 
     def eval(self, key: str) -> float:
         UDBG(f"[ENG] eval({key})")
-        """ارزیابی یک کلید با حل وابستگی‌ها و کش."""
         if key in self.cache:
             UDBG(f"[ENG]  cache-hit {key} =", self.cache[key])
             return self.cache[key]
         if key in self.vars:
-            UDBG(f"[ENG]  undefined key {key}")
             val = self.vars[key]
             try:
                 val = float(val)
@@ -340,32 +329,30 @@ class FormulaEngine:
             self.cache[key] = val
             return val
         if key not in self.formulas:
-            UDBG(f"[ENG]  undefined key {key}")
             raise ValueError(f"Undefined variable or formula: {key}")
-        # ابتدا وابستگی‌هایی که خودشان فرمول هستند را حل کن
+
+        # وابستگی‌ها
         for n in self.deps[key]:
             UDBG(f"[ENG]  dep {key} -> {n}")
             if n in self.formulas and n not in self.cache and n not in self.vars:
                 self.eval(n)
+
         ns = {**self.vars, **self.cache}
-        UDBG(f"[ENG]  eval expr[{key}] =", self.formulas[key], " with ns-keys=", list(ns.keys()))
+        UDBG(f"[ENG]  eval expr[{key}] = {self.formulas[key]}  with ns-keys=", list(ns.keys()))
         val = float(safe_eval_expr(self.formulas[key], ns))
         UDBG(f"[ENG]  result {key} =", val)
         self.cache[key] = val
         return val
 
     def eval_many(self, keys: list[str]) -> dict[str, float]:
-        """ارزیابی چند کلید. اگر ترتیب اهمیت داشته باشد، topo_order کمک می‌کند."""
         _ = self.topo_order()  # تأیید عدم حلقه
-        out: dict[str, float] = {}
-        for k in keys:
-            out[k] = self.eval(k)
-        return out
+        return {k: self.eval(k) for k in keys}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # انتخاب بهترین عرض ورق با کمترین دورریز
 
-def choose_per_sheet_and_width(required_width_cm: float, fixed_widths: list[int],
+def choose_per_sheet_and_width(required_width_cm: float,
+                               fixed_widths: list[float],
                                max_waste_cm: float = 11.0,
                                e20_len_cm: float | None = None):
     """
@@ -374,11 +361,11 @@ def choose_per_sheet_and_width(required_width_cm: float, fixed_widths: list[int]
     - اگر دورریز < max_waste باشد بهترین را برمی‌گرداند.
     - در غیر این‌صورت نزدیک‌ترین را با هشدار برمی‌گرداند.
     """
-    UDBG("[UTIL] choose_per_sheet_and_width: required=", required_width_cm, "fixed=", fixed_widths, "max_waste=",
-         max_waste_cm)
+    UDBG("[UTIL] choose_per_sheet_and_width: required=", required_width_cm,
+         "fixed=", fixed_widths, "max_waste=", max_waste_cm)
 
     best: tuple[float, int, float] | None = None  # (waste, count, W)
-    for W in fixed_widths:
+    for W in fixed_widths or []:
         W = float(W)
         if required_width_cm <= 0:
             continue
@@ -388,18 +375,21 @@ def choose_per_sheet_and_width(required_width_cm: float, fixed_widths: list[int]
         waste = W - count * required_width_cm
         candidate = (waste, count, W)
         if waste < max_waste_cm:
-            if best is None or candidate < best:  # کمینه‌سازی دورریز، سپس بیشینه‌سازی count
+            if best is None or candidate < best:
                 best = candidate
+
     if best:
         waste, count, W = best
-        note = (f"طول ورق (E20) = {e20_len_cm:.2f}cm ، عرض ورق = {W}cm ، "
-                f"دورریز ≈ {waste:.1f}cm") if e20_len_cm is not None else \
-            (f"عرض ورق = {W}cm ، دورریز ≈ {waste:.1f}cm")
+        note = (
+            f"طول ورق (E20) = {e20_len_cm:.2f}cm ، عرض ورق = {W}cm ، دورریز ≈ {waste:.1f}cm"
+            if e20_len_cm is not None
+            else f"عرض ورق = {W}cm ، دورریز ≈ {waste:.1f}cm"
+        )
         return count, W, waste, False, note
 
-    # هیچ گزینه‌ای با دورریز < آستانه پیدا نشد → نزدیک‌ترین را با هشدار انتخاب کن
+    # fallback: نزدیک‌ترین (بیشترین چیدمان و کمترین دورریز)
     fallback: tuple[float, int, float] | None = None
-    for W in fixed_widths:
+    for W in fixed_widths or []:
         W = float(W)
         if required_width_cm <= 0:
             continue
@@ -410,15 +400,11 @@ def choose_per_sheet_and_width(required_width_cm: float, fixed_widths: list[int]
         candidate = (waste, count, W)
         if fallback is None or candidate < fallback:
             fallback = candidate
+
     if fallback:
         waste, count, W = fallback
         note = "هشدار دور ریز زیاد می باشد"
-        UDBG("[UTIL] best choice:", count, W, waste, "warn=", False)  # یا True در fallback
-
         return count, W, waste, True, note
-
-    # هیچ چیز جا نمی‌شود
-    UDBG("[UTIL] best choice:", count, W, waste, "warn=", False)  # یا True در fallback
 
     return 0, 0, 0, True, "ابعاد انتخابی در هیچ عرض ثابتی قابل چیدمان نیست"
 
@@ -438,12 +424,8 @@ def find_post_value_like(name: str, post) -> float | None:
             return to_float(post.get(k))
     return None
 
+
 def evaluate_formulas_dynamic(formulas: dict[str, str], post) -> dict[str, float]:
-    """
-    ارزیابی سریع فرمول‌ها بر اساس request.POST (برای کاربردهای سبک).
-    formulas: {'C16_Calc': '...', 'E20': '...'}
-    خروجی: دیکشنری cache از مقادیر.
-    """
     cache: dict[str, float] = {}
 
     def resolve(name: str):
@@ -454,7 +436,7 @@ def evaluate_formulas_dynamic(formulas: dict[str, str], post) -> dict[str, float
             cache[name] = val
             return val
         if name in formulas:
-            deps = extract_names(formulas[name])
+            deps = [n for n in extract_names(formulas[name]) if n not in _SAFE_FUNCS]  # 👈 فیلتر توابع
             scope = {dep: resolve(dep) for dep in deps}
             val2 = safe_eval(formulas[name], scope)
             cache[name] = float(val2)
@@ -472,13 +454,13 @@ def build_resolver(formulas_raw: dict[str, str], seed_vars: dict[str, Any]):
     """
     formulas_raw: {key: excel_like_expr}
     seed_vars: مقادیر اولیه/ثابت‌ها
-    خروجی: (resolve, cache)
+    خروجی: (resolve, cache, formulas_py)
     """
     # تبدیل همه فرمول‌ها به پایتون
-    formulas = {k: excel_to_python(v) for k, v in formulas_raw.items()}
+    formulas_py = {k: excel_to_python(v) for k, v in formulas_raw.items()}
 
-    # اعتبارسنجی اولیه سینتکس تا خطا واضح باشد
-    for k, expr in formulas.items():
+    # اعتبارسنجی اولیه سینتکس
+    for k, expr in formulas_py.items():
         try:
             ast.parse(str(expr or ""), mode="eval")
         except SyntaxError as e:
@@ -487,6 +469,7 @@ def build_resolver(formulas_raw: dict[str, str], seed_vars: dict[str, Any]):
     cache: dict[str, Any] = dict(seed_vars)
 
     def _extract(expr: str) -> set[str]:
+        """فقط متغیّرها را برگردان؛ توابعِ امن را حذف کن."""
         out: set[str] = set()
         try:
             tree = ast.parse(str(expr or ""), mode="eval")
@@ -494,31 +477,41 @@ def build_resolver(formulas_raw: dict[str, str], seed_vars: dict[str, Any]):
             return out
         for node in ast.walk(tree):
             if isinstance(node, ast.Name):
-                out.add(node.id)
+                if node.id not in _SAFE_FUNCS:   # 👈 مهم: توابع را حذف کن
+                    out.add(node.id)
         return out
 
     def resolve(name: str):
         if name in cache:
             return cache[name]
-        if name in formulas:
-            expr = formulas[name]
+        if name in formulas_py:
+            expr = formulas_py[name]
             deps = _extract(expr)
-            scope = {d: resolve(d) for d in deps}
-            val = safe_eval(expr, scope)
+            scope = {d: resolve(d) for d in deps}  # فقط متغیّرها
+            val = safe_eval(expr, scope)           # safe_eval خودش _SAFE_FUNCS را دارد
             cache[name] = val
             return val
         raise ValueError(f"Unknown name in expression: {name}")
 
-    return resolve, cache, formulas
+    return resolve, cache, formulas_py
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # جایگذاری نام متغیرها با مقدارشان برای دیباگ
+
 import re as _re_dbg
 
 def render_formula(expr: str, vars_dict: dict) -> str:
+    """
+    صرفاً برای دیباگ: نام متغیرها را با مقدارشان درون رشتهٔ فرمول جایگزین می‌کند.
+    """
     out = expr
     # نام‌های طولانی‌تر اول تا جایگذاری اشتباه نشود (مثلاً E20 قبل از E2)
     for name, val in sorted(vars_dict.items(), key=lambda x: -len(x[0])):
         out = _re_dbg.sub(rf"\b{name}\b", str(val), out)
     return out
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 # utils.py
 def compute_sheet_options(required_width_cm: float,
@@ -526,21 +519,22 @@ def compute_sheet_options(required_width_cm: float,
                           max_waste_cm: float = 11.0,
                           max_options: int = 6):
     """
-    از بزرگ‌ترین عرض به کوچک‌تر می‌گردد و گزینه‌هایی که دورریزشان 0 تا کمتر از max_waste_cm باشد را
-    برمی‌گرداند. خروجی: لیست دیکشنری‌ها {'width', 'count', 'waste'} مرتب‌شده به ترتیب
-    عرض نزولی و سپس دورریز صعودی.
+    از بزرگ‌ترین عرض به کوچک‌تر می‌گردد و گزینه‌هایی که دورریزشان
+    بین 0 و کمتر از max_waste_cm است را برمی‌گرداند.
+    خروجی: [{'width': ..., 'count': ..., 'waste': ...}, ...]
     """
     if not fixed_widths or required_width_cm <= 0:
         return []
 
-    options = []
-    for W in sorted(fixed_widths, reverse=True):  # از بزرگ‌ترین شروع کن
+    opts = []
+    for W in sorted(fixed_widths, reverse=True):  # 👈 از بزرگ‌ترین شروع
         count = int(W // required_width_cm)
         if count < 1:
             continue
         waste = W - count * required_width_cm
         if 0 <= waste < max_waste_cm:
-            options.append({'width': float(W), 'count': int(count), 'waste': float(waste)})
+            opts.append({'width': float(W), 'count': int(count), 'waste': float(waste)})
 
-    options.sort(key=lambda o: (-o['width'], o['waste']))
-    return options[:max_options]
+    # مرتب‌سازی: عرض نزولی، بعد دورریز صعودی
+    opts.sort(key=lambda o: (-o['width'], o['waste']))
+    return opts[:max_options]
