@@ -1,57 +1,79 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 {% load static %}
+
 {% block content %}
 <h3 class="mb-3">فرم قیمت</h3>
 
 {# پیام‌ها #}
 {% if messages %}
   {% for message in messages %}
-    <div class="alert alert-{{ message.tags|default:'info' }} mb-2">{{ message }}</div>
+    <div class="alert alert-{{ message.tags|default:'info' }} mb-2" role="alert">{{ message }}</div>
   {% endfor %}
 {% endif %}
 
-{# خطاها #}
-{% if errors %}
-  <div class="alert alert-danger">
+{# خطاهای سطح فرم/محاسبه #}
+{% if errors or form.non_field_errors %}
+  <div class="alert alert-danger" role="alert">
     <strong>خطا در محاسبه/اعتبارسنجی:</strong>
     <ul class="mt-2 mb-0">
-      {% for field, errs in errors.items %}
-        {% if field == '__all__' %}
-          {% for e in errs %}<li>{{ e }}</li>{% endfor %}
-        {% else %}
-          <li><strong>{{ field }}:</strong>
-            <ul class="mb-0">{% for e in errs %}<li>{{ e }}</li>{% endfor %}</ul>
-          </li>
-        {% endif %}
-      {% endfor %}
+      {% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}
+      {% if errors %}
+        {% for field, errs in errors.items %}
+          {% if field == '__all__' %}
+            {% for e in errs %}<li>{{ e }}</li>{% endfor %}
+          {% else %}
+            <li><strong>{{ field }}:</strong>
+              <ul class="mb-0">{% for e in errs %}<li>{{ e }}</li>{% endfor %}</ul>
+            </li>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
     </ul>
   </div>
 {% endif %}
 
-<form method="post" class="card card-body shadow-sm mb-4" id="priceForm" dir="rtl">
+<form method="post" id="priceForm" class="card card-body shadow-sm mb-4" dir="rtl" novalidate>
   {% csrf_token %}
-
   <div class="row g-3">
-    <div class="col-md-4">{{ form.customer.label_tag }} {{ form.customer }}</div>
-    <div class="col-md-4">{{ form.contact_phone.label_tag }} {{ form.contact_phone }}</div>
-    <div class="col-md-4">{{ form.prepared_by.label_tag }} {{ form.prepared_by }}</div>
 
-    <div class="col-md-12 d-flex align-items-center gap-2">
-      <button type="button" class="btn btn-outline-primary btn-sm" id="btnAddCustomer">افزودن مشتری</button>
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="btnAddPhone">افزودن شماره تماس</button>
-      <span class="ms-2 text-muted" id="lastOrderInfo"></span>
+    {# اطلاعات مشتری #}
+    <div class="col-md-4">
+      <label class="form-label" for="{{ form.customer.id_for_label }}">{{ form.customer.label }}</label>
+      {{ form.customer }}
+      {% for e in form.customer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="{{ form.contact_phone.id_for_label }}">{{ form.contact_phone.label }}</label>
+      {{ form.contact_phone }}
+      {% for e in form.contact_phone.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="{{ form.prepared_by.id_for_label }}">{{ form.prepared_by.label }}</label>
+      {{ form.prepared_by }}
+      {% for e in form.prepared_by.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    <hr/>
+    <div class="col-12 d-flex align-items-center gap-2 flex-wrap">
+      <button type="button" class="btn btn-outline-primary btn-sm" id="btnAddCustomer">افزودن مشتری</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="btnAddPhone">افزودن شماره تماس</button>
+      <span class="ms-2 text-muted" id="lastOrderInfo" aria-live="polite"></span>
+    </div>
 
-    <div class="col-md-2">{{ form.has_print_notes.label_tag }} {{ form.has_print_notes }}</div>
+    <hr class="my-2"/>
+
+    {# گزینه‌های چاپ/ابعاد/فنی #}
+    <div class="col-md-2">
+      <div class="form-check">
+        {{ form.has_print_notes }} {{ form.has_print_notes.label_tag }}
+      </div>
+      {% for e in form.has_print_notes.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
     <div class="col-md-10 d-flex gap-3 align-items-center flex-wrap">
       <label class="form-check">{{ form.dim_customer }} {{ form.dim_customer.label_tag }}</label>
       <label class="form-check">{{ form.dim_customer_sample }} {{ form.dim_customer_sample.label_tag }}</label>
       <label class="form-check">{{ form.dim_sample }} {{ form.dim_sample.label_tag }}</label>
     </div>
-
-    <div class="col-md-12 d-flex gap-3 align-items-center flex-wrap">
+    <div class="col-12 d-flex gap-3 align-items-center flex-wrap">
       <label class="form-check">{{ form.tech_new_cliche }} {{ form.tech_new_cliche.label_tag }}</label>
       <label class="form-check">{{ form.tech_handle_slot }} {{ form.tech_handle_slot.label_tag }}</label>
       <label class="form-check">{{ form.tech_punch }} {{ form.tech_punch.label_tag }}</label>
@@ -59,39 +81,107 @@
       <label class="form-check">{{ form.tech_shipping_on_customer }} {{ form.tech_shipping_on_customer.label_tag }}</label>
     </div>
 
-    <div class="col-md-3">{{ form.product_code.label_tag }} {{ form.product_code }}</div>
-    <div class="col-md-3">{{ form.carton_type.label_tag }} {{ form.carton_type }}</div>
-    <div class="col-md-3">{{ form.carton_name.label_tag }} {{ form.carton_name }}</div>
-    <div class="col-md-3">{{ form.I8_qty.label_tag }} {{ form.I8_qty }}</div>
-
-    <div class="col-md-3">{{ form.A1_layers.label_tag }} {{ form.A1_layers }}</div>
-    <div class="col-md-3">{{ form.A2_pieces.label_tag }} {{ form.A2_pieces }}</div>
-    <div class="col-md-3">{{ form.A3_door_type.label_tag }} {{ form.A3_door_type }}</div>
-    <div class="col-md-3">{{ form.A4_door_count.label_tag }} {{ form.A4_door_count }}</div>
-
-    <div class="col-md-3">{{ form.E15_len.label_tag }} {{ form.E15_len }}</div>
-    <div class="col-md-3">{{ form.G15_wid.label_tag }} {{ form.G15_wid }}</div>
-    <div class="col-md-3">{{ form.I15_hgt.label_tag }} {{ form.I15_hgt }}</div>
-
-    {# --- فیلد لب درب: به صورت شرطی نمایش داده می‌شود --- #}
-    <div class="col-md-3" id="field-e17-wrap">
-      {{ form.E17_lip.label_tag }} {{ form.E17_lip }}
-      <div class="form-text text-muted" id="field-e17-hint" style="display:none">
-        اگر مخفی شد یعنی مقدارش با فرمول محاسبه می‌شود.
-      </div>
+    {# مشخصات محصول/کارتن #}
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.product_code.id_for_label }}">{{ form.product_code.label }}</label>
+      {{ form.product_code }}
+      {% for e in form.product_code.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.carton_type.id_for_label }}">{{ form.carton_type.label }}</label>
+      {{ form.carton_type }}
+      {% for e in form.carton_type.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.carton_name.id_for_label }}">{{ form.carton_name.label }}</label>
+      {{ form.carton_name }}
+      {% for e in form.carton_name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.I8_qty.id_for_label }}">{{ form.I8_qty.label }}</label>
+      {{ form.I8_qty }}
+      {% for e in form.I8_qty.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    <div class="col-md-3">{{ form.D31_flute.label_tag }} {{ form.D31_flute }}</div>
-    <div class="col-md-3">{{ form.payment_type.label_tag }} {{ form.payment_type }}</div>
-    <div class="col-md-3">{{ form.E46_round_adjust.label_tag }} {{ form.E46_round_adjust }}</div>
+    {# کُد A6 #}
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.A1_layers.id_for_label }}">{{ form.A1_layers.label }}</label>
+      {{ form.A1_layers }}
+      {% for e in form.A1_layers.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.A2_pieces.id_for_label }}">{{ form.A2_pieces.label }}</label>
+      {{ form.A2_pieces }}
+      {% for e in form.A2_pieces.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.A3_door_type.id_for_label }}">{{ form.A3_door_type.label }}</label>
+      {{ form.A3_door_type }}
+      {% for e in form.A3_door_type.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.A4_door_count.id_for_label }}">{{ form.A4_door_count.label }}</label>
+      {{ form.A4_door_count }}
+      {% for e in form.A4_door_count.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
 
-    <div class="col-12">{{ form.description.label_tag }} {{ form.description }}</div>
+    {# ابعاد/لب درب #}
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.E15_len.id_for_label }}">{{ form.E15_len.label }}</label>
+      {{ form.E15_len }}
+      {% for e in form.E15_len.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.G15_wid.id_for_label }}">{{ form.G15_wid.label }}</label>
+      {{ form.G15_wid }}
+      {% for e in form.G15_wid.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.I15_hgt.id_for_label }}">{{ form.I15_hgt.label }}</label>
+      {{ form.I15_hgt }}
+      {% for e in form.I15_hgt.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
 
-    <div class="col-12 form-check mt-2">{{ form.save_record }} {{ form.save_record.label_tag }}</div>
+    {# فیلد لب درب: فقط وقتی A6 انتهایش 11 یا 12 باشد، نمایش بده #}
+    <div class="col-md-3" id="field-e17-wrap">
+      <label class="form-label" for="{{ form.E17_lip.id_for_label }}">{{ form.E17_lip.label }}</label>
+      {{ form.E17_lip }}
+      <div class="form-text text-muted" id="field-e17-hint">
+        این فیلد فقط وقتی لازم است که انتهای A6، عدد 11 یا 12 باشد؛ در غیر این صورت مقدارش از فرمول محاسبه می‌شود.
+      </div>
+      {% for e in form.E17_lip.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    {# سایر پارامترها #}
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.D31_flute.id_for_label }}">{{ form.D31_flute.label }}</label>
+      {{ form.D31_flute }}
+      {% for e in form.D31_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.payment_type.id_for_label }}">{{ form.payment_type.label }}</label>
+      {{ form.payment_type }}
+      {% for e in form.payment_type.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.E46_round_adjust.id_for_label }}">{{ form.E46_round_adjust.label }}</label>
+      {{ form.E46_round_adjust }}
+      {% for e in form.E46_round_adjust.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12">
+      <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+      {% for e in form.description.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 form-check mt-2">
+      {{ form.save_record }} {{ form.save_record.label_tag }}
+    </div>
 
     <div class="col-12">
       <div class="d-flex align-items-center gap-3">
-        <span id="a6_display" class="text-secondary small">A6 = —</span>
+        <strong id="a6_display" class="text-secondary small" aria-live="polite">A6 = —</strong>
         <button id="btnSubmit" class="btn btn-primary">
           <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
           محاسبه
@@ -100,101 +190,183 @@
     </div>
   </div>
 
-  {# ── گزینه‌های عرض ورق (اگر در کانتکست باشد) ── #}
+  {# ── گزینه‌های عرض ورق (اگر موجود) ── #}
   {% if sheet_options %}
-  <div class="card shadow-sm mt-4">
-    <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
-    <div class="card-body">
-      <p class="text-muted mb-2">
-        برای K20 = <strong>{{ result_preview.K20 }}</strong> و E20 = <strong>{{ result_preview.E20 }}</strong>،
-        گزینه‌های زیر با دورریز &lt; 11cm پیشنهاد می‌شوند. یکی را انتخاب کنید و «محاسبه» را بزنید.
-      </p>
+    <div class="card shadow-sm mt-4">
+      <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
+      <div class="card-body">
+ <p class="text-muted mb-2">
+  <strong>K15 (محاسبه شیت) = {{ result_preview.K15 }}</strong> |
+  <strong>E20 = {{ result_preview.E20 }}</strong> |
+  <strong>K20 = {{ result_preview.K20 }}</strong>
+  <br>
+  با توجه به مقادیر بالا، گزینه‌های زیر برای عرض ورق با دورریز کمتر از <strong>11cm</strong> پیشنهاد می‌شوند.
+  لطفاً یکی را انتخاب کنید و «محاسبه» را بزنید.
+</p>
 
-      <div class="table-responsive">
-        <table class="table table-sm align-middle">
-          <thead>
-            <tr>
-              <th>انتخاب</th>
-              <th>عرض ورق (cm)</th>
-              <th>F24 (تعداد/ورق)</th>
-              <th>دورریز (cm)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for o in sheet_options %}
-            <tr>
-              <td><input type="radio" name="sheet_choice" value="{{ o.width }}" {% if forloop.first %}checked{% endif %}></td>
-              <td>{{ o.width|floatformat:0 }}</td>
-              <td>{{ o.count }}</td>
-              <td>{{ o.waste|floatformat:1 }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead class="text-center">
+              <tr>
+                <th>انتخاب</th>
+                <th>عرض ورق (cm)</th>
+                <th>F24 (تعداد/ورق)</th>
+                <th>دورریز (cm)</th>
+              </tr>
+            </thead>
+            <tbody>
+             {% for o in sheet_options %}
+<tr>
+  <td class="text-center">
+    <input type="radio"
+           name="sheet_choice"
+           value="{{ o.width }}"
+           {% if request.POST.sheet_choice %}
+             {% if request.POST.sheet_choice|floatformat:2 == o.width|floatformat:2 %}
+               checked
+             {% endif %}
+           {% elif forloop.first %}
+             checked
+           {% endif %}>
+  </td>
+  <td class="text-center">{{ o.width|floatformat:0 }}</td>
+  <td class="text-center">{{ o.count }}</td>
+  <td class="text-center">{{ o.waste|floatformat:1 }}</td>
+</tr>
+{% empty %}
+<tr>
+  <td colspan="4" class="text-center text-muted">
+    هیچ گزینه‌ای یافت نشد.
+  </td>
+</tr>
+{% endfor %}
+
+            </tbody>
+          </table>
+        </div>
+
+        <button class="btn btn-primary mt-2">محاسبه</button>
       </div>
-
-      {# حفظ کامل وضعیت فرم #}
-      {% for field in form %}
-        {% if field.name != "sheet_choice" %}
-          <input type="hidden" name="{{ field.name }}" value="{{ field.value|default_if_none:'' }}">
-        {% endif %}
-      {% endfor %}
-
-      <button class="btn btn-primary mt-2">محاسبه</button>
     </div>
-  </div>
   {% endif %}
 </form>
 
+{# ── نتایج ── #}
 {% if result %}
-<div class="card shadow-sm">
-  <div class="card-header">نتیجه محاسبات</div>
-  <div class="card-body">
-    <div class="row g-3">
-      <div class="col-md-2"><strong>A6:</strong> {{ result.A6_sheet_code }}</div>
-      <div class="col-md-2"><strong>E20:</strong> {{ result.E20_industrial_len }} cm</div>
-      <div class="col-md-2"><strong>K20:</strong> {{ result.K20_industrial_wid }} cm</div>
-      <div class="col-md-3"><strong>F24 (تعداد/ورق):</strong> {{ result.F24_per_sheet_count }}</div>
-      <div class="col-md-3"><strong>عرض ورق انتخابی:</strong> {{ result.chosen_sheet_width }} cm</div>
-      <div class="col-12">
-        <span class="note {% if result.waste_warning %}text-danger{% else %}text-success{% endif %}">
-          {{ result.note_message }}
-        </span>
+  <div class="card shadow-sm">
+    <div class="card-header">نتیجه محاسبات</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-2"><strong>A6:</strong> {{ result.A6_sheet_code }}</div>
+        <div class="col-md-2"><strong>E20:</strong> {{ result.E20_industrial_len }} cm</div>
+        <div class="col-md-2"><strong>K20:</strong> {{ result.K20_industrial_wid }} cm</div>
+        <div class="col-md-3"><strong>F24 (تعداد/ورق):</strong> {{ result.F24_per_sheet_count }}</div>
+        <div class="col-md-3"><strong>عرض ورق انتخابی:</strong> {{ result.chosen_sheet_width }} cm</div>
+        <div class="col-12">
+          <span class="note {% if result.waste_warning %}text-danger{% else %}text-success{% endif %}">
+            {{ result.note_message }}
+          </span>
+        </div>
+        <hr/>
+        <div class="col-md-3"><strong>E28 مصرف کارتن:</strong> {{ result.E28_carton_consumption }}</div>
+        <div class="col-md-3"><strong>E38 متراژ ورق (m²):</strong> {{ result.E38_sheet_area_m2 }}</div>
+        <div class="col-md-3"><strong>I38 تعداد ورق:</strong> {{ result.I38_sheet_count }}</div>
+        <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost }}</div>
+        <div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost }}</div>
+        <div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost }}</div>
+        <div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount }}</div>
+        <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax }}</div>
+        <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax }}</div>
+        <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax }}</div>
       </div>
-      <hr/>
-      <div class="col-md-3"><strong>E28 مصرف کارتن:</strong> {{ result.E28_carton_consumption }}</div>
-      <div class="col-md-3"><strong>E38 متراژ ورق (m²):</strong> {{ result.E38_sheet_area_m2 }}</div>
-      <div class="col-md-3"><strong>I38 تعداد ورق:</strong> {{ result.I38_sheet_count }}</div>
-      <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost }}</div>
-      <div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost }}</div>
-      <div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost }}</div>
-      <div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount }}</div>
-      <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax }}</div>
-      <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax }}</div>
-      <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax }}</div>
+    </div>
+  </div>
+{% endif %}
+{# ── دیباگ ── #}
+{% if vars %}
+  <details class="mb-3"><summary>نمایش متغیّرها (دیباگ)</summary>
+    <pre class="mt-2">{{ vars|safe }}</pre>
+  </details>
+{% endif %}
+
+{% if debug_formulas %}
+  <details class="mb-3"><summary>محاسبات فرمول‌ها (دیباگ)</summary>
+    <ul class="mt-2">
+      {% for k, v in debug_formulas.items %}
+        <li><strong>{{ k }}</strong>: {{ v }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+{% endif %}
+
+{% if k15_multiples %}
+<div class="accordion mb-3" id="acc-k15x">
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="dbg-k15x">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+              data-bs-target="#collapse-k15x" aria-expanded="false" aria-controls="collapse-k15x">
+        سری K15 × (1..30) — بررسی با عرض‌های ثابت
+      </button>
+    </h2>
+    <div id="collapse-k15x" class="accordion-collapse collapse" aria-labelledby="dbg-k15x" data-bs-parent="#acc-k15x">
+      <div class="accordion-body">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>F24 (فرضی)</th>
+                <th>نیاز (cm) = F × K15</th>
+                <th>کوچک‌ترین عرض ثابت</th>
+                <th>دورریز (cm)</th>
+                <th>وضعیت</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in k15_multiples %}
+                <tr>
+                  <td>{{ row.f }}</td>
+                  <td>{{ row.need|floatformat:2 }}</td>
+                  <td>
+                    {% if row.best_width is not None %}
+                      {{ row.best_width|floatformat:0 }}
+                    {% else %}-{% endif %}
+                  </td>
+                  <td>
+                    {% if row.waste is not None %}
+                      {{ row.waste|floatformat:2 }}
+                    {% else %}-{% endif %}
+                  </td>
+                  <td>
+                    {% if row.ok %}
+                      <span class="text-success">مناسب (دورریز &lt; 11)</span>
+                    {% else %}
+                      <span class="text-muted">نامناسب</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 {% endif %}
 
-{% if vars %}
-<details class="mb-3"><summary>نمایش متغیّرها (دیباگ)</summary>
-  <pre class="mt-2">{{ vars|safe }}</pre>
-</details>
-{% endif %}
-
-{% if debug_formulas %}
-<details class="mb-3"><summary>محاسبات فرمول‌ها (دیباگ)</summary>
-  <ul class="mt-2">
-    {% for k, v in debug_formulas.items %}
-      <li><strong>{{ k }}</strong>: {{ v }}</li>
-    {% endfor %}
-  </ul>
-</details>
-{% endif %}
+{# ── URL ها را به JS تزریق کن تا NoReverseMatch پیش نیاید ── #}
+<script>
+  window.URLS = {
+    api_last_order: "{% url 'carton_pricing:api_last_order' %}",
+    api_add_customer: "{% url 'carton_pricing:api_add_customer' %}",
+    api_add_phone: "{% url 'carton_pricing:api_add_phone' %}",
+  };
+</script>
 
 <script>
-(function(){
+(function () {
+  "use strict";
+
   // CSRF از کوکی
   function getCookie(name){
     const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
@@ -202,117 +374,10 @@
   }
   const CSRF = getCookie('csrftoken');
 
-  // نمایش زنده‌ی A6
-  function updateA6(){
-    const a1 = document.querySelector('input[name="A1_layers"]:checked') || document.getElementById('id_A1_layers');
-    const a2 = document.querySelector('input[name="A2_pieces"]:checked') || document.getElementById('id_A2_pieces');
-    const a3 = document.querySelector('input[name="A3_door_type"]:checked') || document.getElementById('id_A3_door_type');
-    const a4 = document.querySelector('input[name="A4_door_count"]:checked') || document.getElementById('id_A4_door_count');
-    const el = document.getElementById('a6_display');
-    const v1 = a1?.value || '', v2 = a2?.value || '', v3 = a3?.value || '', v4 = a4?.value || '';
-    el.textContent = (v1 && v2 && v3 && v4) ? ("A6 = " + v1+v2+v3+v4) : "A6 = —";
-  }
-  document.querySelectorAll('#priceForm select, #priceForm input[type=radio]').forEach(el=>{
-    el.addEventListener('change', updateA6);
-  });
-  updateA6();
-
-  // آخرین سفارش مشتری
-  const customerSel = document.getElementById('id_customer');
-  const lastInfo = document.getElementById('lastOrderInfo');
-  function fetchLast(){
-    if(!customerSel || !customerSel.value) return;
-    fetch('{% url "api_last_order" %}', {
-      method:'POST',
-      headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({customer_id: customerSel.value})
-    })
-    .then(r=>r.json())
-    .then(d=>{
-      if(d.ok && d.data){ lastInfo.textContent = `آخرین سفارش: تاریخ ${d.data.last_date} | فی ${d.data.last_fee} | نرخ ${d.data.last_rate}`; }
-      else { lastInfo.textContent = 'آخرین سفارشی یافت نشد'; }
-    })
-    .catch(()=>{});
-  }
-  if(customerSel){ customerSel.addEventListener('change', fetchLast); fetchLast(); }
-
-  // افزودن سریع مشتری
-  document.getElementById('btnAddCustomer')?.addEventListener('click', async ()=>{
-    const first_name = prompt('نام'); if(!first_name) return;
-    const last_name = prompt('نام خانوادگی')||'';
-    const organization = prompt('نام مجموعه/شرکت')||'';
-    const economic_no = prompt('شماره اقتصادی')||'';
-    const address = prompt('آدرس')||'';
-    const fd = new URLSearchParams({first_name,last_name,organization,economic_no,address});
-    const res = await fetch('{% url "api_add_customer" %}', {
-      method:'POST', headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'}, body:fd
-    });
-    const data = await res.json();
-    if(data.ok){
-      const opt = new Option(data.text, data.id, true, true);
-      customerSel.add(opt); customerSel.value = data.id; fetchLast();
-    }else{ alert('خطا در افزودن مشتری'); }
-  });
-
-  // افزودن سریع شماره تماس
-  document.getElementById('btnAddPhone')?.addEventListener('click', async ()=>{
-    if(!customerSel?.value){ alert('ابتدا مشتری را انتخاب کنید'); return; }
-    const number = prompt('شماره تماس'); if(!number) return;
-    const label = prompt('برچسب')||'';
-    const fd = new URLSearchParams({customer:customerSel.value, number, label});
-    const res = await fetch('{% url "api_add_phone" %}', {
-      method:'POST', headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'}, body:fd
-    });
-    const data = await res.json();
-    if(data.ok){
-      const phoneInput = document.getElementById('id_contact_phone');
-      if(phoneInput && !phoneInput.value) phoneInput.value = data.text; else alert('ثبت شد: '+data.text);
-    } else { alert('خطا در افزودن شماره'); }
-  });
-
-  // نمایش/مخفی کردن فیلد لب درب (E17_lip)
-  function toggleE17(){
-    const a2 = document.getElementById('id_A2_pieces');      // چند تیکه
-    const a3 = document.getElementById('id_A3_door_type');   // نوع درب
-    const wrap = document.getElementById('field-e17-wrap');
-    const hint = document.getElementById('field-e17-hint');
-    const e17 = document.getElementById('id_E17_lip');
-
-    // مقدارهای واقعی گزینه‌ها را با مقادیر مدل خودت هماهنگ کن:
-    // فرض: چهار تیکه = 4 ، درب باز = 2
-    const show = (a2 && a2.value === '4') || (a3 && a3.value === '2');
-
-    if(show){
-      wrap.style.display = '';
-      hint.style.display = 'block';
-    }else{
-      wrap.style.display = 'none';
-      hint.style.display = 'none';
-      if(e17){ e17.value = ''; }  // وقتی محاسباتی است، مقدار دستی پاک شود
-    }
-  }
-  document.getElementById('id_A2_pieces')?.addEventListener('change', toggleE17);
-  document.getElementById('id_A3_door_type')?.addEventListener('change', toggleE17);
-  window.addEventListener('load', toggleE17);
-
-  // اسپینر دکمه محاسبه
-  const btnSubmit = document.getElementById('btnSubmit');
-  const btnSpinner = document.getElementById('btnSpinner');
-  document.getElementById('priceForm')?.addEventListener('submit', ()=>{
-    btnSpinner.classList.remove('d-none');
-    btnSubmit.setAttribute('disabled', 'disabled');
-  });
-})();
-</script>
-    <script>
-(function () {
-  // کمک‌کار: مقدار فعلی یک فیلد را (select یا radio-group) برمی‌گرداند
+  // کمک‌کار: مقدار فعلی یک فیلد (select یا radio-group)
   function getFieldValue(name) {
-    // اول بر اساس id استاندارد جنگو (id_<name>) سعی می‌کنیم
     const byId = document.getElementById('id_' + name);
     if (byId) return byId.value;
-
-    // اگر رادیویی بود
     const radios = document.querySelectorAll('input[name="' + name + '"]');
     if (radios.length) {
       const checked = Array.from(radios).find(r => r.checked);
@@ -321,36 +386,130 @@
     return '';
   }
 
-  function updateA6() {
+  // نمایش زنده‌ی A6 + تعیین نمایش فیلد E17 بر اساس دو رقم انتهایی
+  function updateA6AndE17() {
     const a1 = getFieldValue('A1_layers') || '0';
     const a2 = getFieldValue('A2_pieces') || '0';
     const a3 = getFieldValue('A3_door_type') || '0';
     const a4 = getFieldValue('A4_door_count') || '0';
     const code = a1 + a2 + a3 + a4;
 
-    // نمایش در المنتی که توی قالب داری (مثلاً <strong id="a6_display">)
-    const el = document.getElementById('a6_display');
-    if (el) el.textContent = 'A6: ' + (code.match(/^\d{4}$/) ? code : '—');
+    const a6El = document.getElementById('a6_display');
+    if (a6El) a6El.textContent = 'A6 = ' + (/^\d{4}$/.test(code) ? code : '—');
+
+    const wrap = document.getElementById('field-e17-wrap');
+    const e17  = document.getElementById('id_E17_lip');
+    if (/^\d{4}$/.test(code)) {
+      const tail = parseInt(code.slice(-2), 10); // دو رقم انتهایی
+      const needManual = (tail === 11 || tail === 12);
+      if (needManual) {
+        wrap.style.display = '';
+      } else {
+        wrap.style.display = 'none';
+        if (e17) e17.value = ''; // چون از فرمول محاسبه می‌شود
+      }
+    } else {
+      wrap.style.display = '';
+    }
   }
 
-  // به تغییرات این چهار فیلد گوش کن
+  // آخرین سفارش مشتری
+  const customerSel = document.getElementById('id_customer');
+  const lastInfo = document.getElementById('lastOrderInfo');
+  async function fetchLast(){
+    if(!customerSel || !customerSel.value) return;
+    try {
+      const r = await fetch(window.URLS.api_last_order, {
+        method:'POST',
+        headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({customer_id: customerSel.value})
+      });
+      const d = await r.json();
+      if(d.ok && d.data){
+        lastInfo.textContent = `آخرین سفارش: تاریخ ${d.data.last_date} | فی ${d.data.last_fee} | نرخ ${d.data.last_rate}`;
+      } else {
+        lastInfo.textContent = 'آخرین سفارشی یافت نشد';
+      }
+    } catch(e){ /* silent */ }
+  }
+
+  // افزودن سریع مشتری
+  async function quickAddCustomer(){
+    const first_name = prompt('نام'); if(!first_name) return;
+    const last_name = prompt('نام خانوادگی')||'';
+    const organization = prompt('نام مجموعه/شرکت')||'';
+    const economic_no = prompt('شماره اقتصادی')||'';
+    const address = prompt('آدرس')||'';
+    const fd = new URLSearchParams({first_name,last_name,organization,economic_no,address});
+    try{
+      const res = await fetch(window.URLS.api_add_customer, {
+        method:'POST',
+        headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
+        body:fd
+      });
+      const data = await res.json();
+      if(data.ok){
+        const opt = new Option(data.text, data.id, true, true);
+        customerSel.add(opt);
+        customerSel.value = data.id;
+        fetchLast();
+      }else{
+        alert('خطا در افزودن مشتری');
+      }
+    }catch{ alert('اشکال در اتصال'); }
+  }
+
+  // افزودن سریع شماره تماس
+  async function quickAddPhone(){
+    if(!customerSel?.value){ alert('ابتدا مشتری را انتخاب کنید'); return; }
+    const number = prompt('شماره تماس'); if(!number) return;
+    const label = prompt('برچسب')||'';
+    const fd = new URLSearchParams({customer:customerSel.value, number, label});
+    try{
+      const res = await fetch(window.URLS.api_add_phone, {
+        method:'POST',
+        headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
+        body:fd
+      });
+      const data = await res.json();
+      if(data.ok){
+        const phoneInput = document.getElementById('id_contact_phone');
+        if(phoneInput && !phoneInput.value) phoneInput.value = data.text;
+        else alert('ثبت شد: '+data.text);
+      }else{
+        alert('خطا در افزودن شماره');
+      }
+    }catch{ alert('اشکال در اتصال'); }
+  }
+
+  // لیسنرها
   ['A1_layers','A2_pieces','A3_door_type','A4_door_count'].forEach(name => {
     const elById = document.getElementById('id_' + name);
     if (elById) {
-      elById.addEventListener('change', updateA6);
-      elById.addEventListener('input', updateA6);
+      elById.addEventListener('change', updateA6AndE17);
+      elById.addEventListener('input', updateA6AndE17);
     } else {
-      // اگر رادیویی باشد
       document.querySelectorAll('input[name="' + name + '"]').forEach(r => {
-        r.addEventListener('change', updateA6);
-        r.addEventListener('input', updateA6);
+        r.addEventListener('change', updateA6AndE17);
+        r.addEventListener('input', updateA6AndE17);
       });
     }
   });
+  customerSel?.addEventListener('change', fetchLast);
 
-  // بار اول صفحه
-  document.addEventListener('DOMContentLoaded', updateA6);
+  document.getElementById('btnAddCustomer')?.addEventListener('click', quickAddCustomer);
+  document.getElementById('btnAddPhone')?.addEventListener('click', quickAddPhone);
+
+  // اسپینر دکمه «محاسبه»
+  const btnSubmit = document.getElementById('btnSubmit');
+  const btnSpinner = document.getElementById('btnSpinner');
+  document.getElementById('priceForm')?.addEventListener('submit', ()=>{
+    btnSpinner.classList.remove('d-none');
+    btnSubmit.setAttribute('disabled','disabled');
+  });
+
+  // بار اول
+  window.addEventListener('load', () => { updateA6AndE17(); fetchLast(); });
 })();
 </script>
-
 {% endblock %}
