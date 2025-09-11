@@ -225,15 +225,163 @@ def formulas_view(request: HttpRequest) -> HttpResponse:
 
 
 # ───────────────────────── Price Form ─────────────────────────
+# ... بقیهٔ ایمپورت‌ها و کد شما بالاتر ...
+
+# ───────────────────────── helpers at module level ─────────────────────────
+import math, re
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any, Dict, Iterable, List, Optional
+
+from django.contrib import messages
+from django.db import transaction
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
+
+from .forms import PriceForm
+from .models import BaseSettings, CalcFormula, PriceQuotation
+from .settings_api import get_settings as get_settings_external
+from .helpers.settings_adapter import ensure_settings_model
+from .utils import (
+    build_resolver,
+    compute_sheet_options,
+    choose_per_sheet_and_width,
+    render_formula,
+)
+
+def DBG(*parts: Any) -> None:
+    try:
+        print(" ".join(str(p) for p in parts))
+    except Exception:
+        print(" ".join(repr(p) for p in parts))
+
+def q2(val: float | Decimal, places: str) -> Decimal:
+    return Decimal(val).quantize(Decimal(places), rounding=ROUND_HALF_UP)
+
+def _normalize_digits(s: str) -> str:
+    """تبدیل ارقام فارسی/عربی و جداکننده‌ها به لاتین برای پارس مطمئن."""
+    if not isinstance(s, str):
+        s = str(s or "")
+    trans = {
+        ord("۰"): "0", ord("۱"): "1", ord("۲"): "2", ord("۳"): "3", ord("۴"): "4",
+        ord("۵"): "5", ord("۶"): "6", ord("۷"): "7", ord("۸"): "8", ord("۹"): "9",
+        ord("٠"): "0", ord("١"): "1", ord("٢"): "2", ord("٣"): "3", ord("٤"): "4",
+        ord("٥"): "5", ord("٦"): "6", ord("٧"): "7", ord("٨"): "8", ord("٩"): "9",
+        ord("،"): ",", ord("٬"): ",", ord("٫"): ".",
+    }
+    return s.translate(trans)
+
+def _as_num_or_none(x: Any) -> float | None:
+    try:
+        if x is None:
+            return None
+        if isinstance(x, (int, float)):
+            return float(x)
+        s = str(x).strip()
+        if s in ("", "*"):
+            return None
+        return float(s.replace(",", ""))
+    except Exception:
+        return None
+
+def as_num(x: Any, default: float = 0.0) -> float:
+    v = _as_num_or_none(x)
+    return default if v is None else v
+
+def _parse_fixed_widths_from_settings(raw_fw) -> list[float]:
+    """
+    ورودی می‌تواند JSON/list باشد یا رشته‌ای مثل:
+    '[80,90,100,110,120,125,140]' یا '80 , 90 , 100 …'
+    """
+    if raw_fw is None or raw_fw == "":
+        return []
+    if isinstance(raw_fw, (list, tuple)):
+        out = []
+        for x in raw_fw:
+            v = _as_num_or_none(x)
+            if v and v > 0:
+                out.append(float(v))
+        return sorted(set(out))
+    s = _normalize_digits(str(raw_fw))
+    nums = re.findall(r"\d+(?:\.\d+)?", s)
+    widths = [float(n) for n in nums if as_num(n, 0.0) > 0]
+    return sorted(set(widths))
+
+def best_for_each_width(
+    k15: float,
+    widths: Iterable[float],
+    fmax: int = 30,
+    *,
+    waste_min: float = 0.0,   # سبز وقتی 0<waste<11
+    waste_max: float = 11.0,
+    sort_widths: bool = True,
+) -> List[Dict]:
+    """
+    برای هر عرضِ ثابت w، بزرگ‌ترین F (<= fmax) را پیدا می‌کند که F*k15 <= w باشد.
+    خروجی برای هر w: dict با کلیدهای sheet_width, f24, need, waste, ok
+    """
+    try:
+        k15_val = float(k15)
+    except Exception:
+        k15_val = 0.0
+
+    clean_widths: List[float] = []
+    for w in widths or []:
+        try:
+            v = float(w)
+            if v > 0:
+                clean_widths.append(v)
+        except Exception:
+            continue
+    if sort_widths:
+        clean_widths.sort()
+
+    rows: List[Dict] = []
+    if k15_val <= 0 or not clean_widths:
+        for w in clean_widths:
+            rows.append({"sheet_width": float(w), "f24": 0, "need": None, "waste": None, "ok": False})
+        return rows
+
+    for w in clean_widths:
+        best_f: Optional[int] = None
+        best_need: Optional[float] = None
+        best_waste: Optional[float] = None
+
+        for f in range(int(fmax), 0, -1):
+            need = f * k15_val
+            if need <= w + 1e-9:
+                best_f = f
+                best_need = need
+                best_waste = w - need
+                break
+
+        if best_f is None:
+            rows.append({"sheet_width": float(w), "f24": 0, "need": None, "waste": None, "ok": False})
+            continue
+
+        waste = float(best_waste or 0.0)
+        ok = (waste > waste_min) and (waste < waste_max)
+
+        rows.append({
+            "sheet_width": float(w),
+            "f24": int(best_f),
+            "need": round(float(best_need or 0.0), 2),
+            "waste": round(waste, 2),
+            "ok": ok,
+        })
+    return rows
+# ───────────────────────── end helpers ─────────────────────────
+# ─── HARD WIRED SHEET WIDTHS ───────────────────────────────────────────
+HARD_FIXED_WIDTHS: list[float] = [80, 90, 100, 110, 120, 125, 140]
+
+def get_fixed_widths_hard() -> list[float]:
+    """همیشه همین لیست را بر‌می‌گرداند؛ تنظیمات را نادیده می‌گیرد."""
+    return HARD_FIXED_WIDTHS[:]  # کپی امن
+
+
+# ───────────────────────── the view ─────────────────────────
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
-    فرم قیمت (نسخهٔ پایدار برای فرمول‌های داینامیک و وابسته):
-      1) کشیدن فرمول‌ها از DB
-      2) seeding سیستماتیک متغیرها از فرم/ستینگ (+ پیش‌فرض‌های امن)
-      3) تثبیت E17 و سپس محاسبهٔ I17 و K15
-      4) ارزیابی چندمرحله‌ای تا همگرایی
-      5) پیشنهاد عرض ورق، تزریق F24/sheet_width و پاس نهایی
-      6) نگاشت نتایج به مدل + پیش‌نمایش K15 + سری F×K15 با عرض‌های ثابت
+    فرم قیمت: محاسبهٔ فرمول‌ها + پیشنهاد عرض ورق + جدول‌های کمکی
     """
 
     # نگاشت فیلد فرم → نام متغیر
@@ -242,7 +390,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         "G15_wid": "G15",
         "I15_hgt": "I15",
         "I8_qty":  "I8",
-        "E17_lip": "E17",            # فقط fallback دستی
+        "E17_lip": "E17",                # فقط fallback دستی
         "E46_round_adjust": "E46",
         "A1_layers": "A1",
         "A2_pieces": "A2",
@@ -251,7 +399,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     }
     VAR_TO_FIELD = {v: k for (k, v) in FIELD_TO_VAR.items()}
 
-    # ───────── Settings & Context ─────────
+    # settings + context
     bs: BaseSettings = ensure_settings_model(get_settings_external())
     context: Dict[str, Any] = {"settings": bs}
 
@@ -278,8 +426,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
 
     # ───────── Seed از فرم/ستینگ ─────────
     seed_vars: Dict[str, Any] = {}
-
-    # از فرم
     for field, varname in FIELD_TO_VAR.items():
         if field in cd:
             seed_vars[varname] = as_num(cd.get(field), 0.0)
@@ -322,18 +468,17 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         if expr:
             all_tokens.update(token_re.findall(expr))
 
-    # اگر توکنی در seed نیست ولی از فرم می‌آید → از فرم مقدار بده
     for token in all_tokens:
         if token not in seed_vars and token in VAR_TO_FIELD:
             seed_vars[token] = as_num(cd.get(VAR_TO_FIELD[token]), 0.0)
 
-    # پیش‌فرض‌های «امن» برای نام‌های حساس (تا Unknown name نخوریم)
+    # پیش‌فرض‌های امن
     for k in ("E17", "I17", "F24", "sheet_width"):
         seed_vars.setdefault(k, 0.0)
 
-    # ───────── Resolver ─────────
+    # ساخت Resolver
     resolve, var, formulas_py = build_resolver(formulas_raw, seed_vars)
-    var.update(seed_vars)  # فضای ارزیابی همان seed را ببیند
+    var.update(seed_vars)
 
     context["debug_formulas"] = {k: render_formula(expr, seed_vars) for k, expr in formulas_py.items()}
 
@@ -349,10 +494,9 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     # ───────── تثبیت E17 → سپس I17 → سپس K15 ─────────
     tail = seed_vars["A6"] % 100 if seed_vars["A6"] else 0
     g15  = float(seed_vars.get("G15", 0.0))
-    DBG(f"[TRACE:E17] tail={tail} expr={formulas_py.get('E17')}")
 
     if tail in (11, 12):
-        e17_manual = as_num_or_none(cd.get("E17_lip"))
+        e17_manual = _as_num_or_none(cd.get("E17_lip"))
         if not e17_manual or e17_manual == 0.0:
             form.add_error("E17_lip", "این فیلد برای حالت‌های انتهایی 11 یا 12 در A6 الزامی است.")
             context["errors"] = form.errors
@@ -360,11 +504,10 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         var["E17"] = float(e17_manual)
     else:
         raw_e17 = safe_resolve("E17")
-        num_e17 = as_num_or_none(raw_e17)
+        num_e17 = _as_num_or_none(raw_e17)
         if num_e17 not in (None, 0.0):
             var["E17"] = float(num_e17)
         else:
-            # fail-safe مبتنی بر tail و G15
             if g15 > 0 and tail in (21, 22):
                 var["E17"] = g15 / 2.0
             elif g15 > 0 and tail in (31, 32):
@@ -374,42 +517,38 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
 
     seed_vars["E17"] = float(var["E17"])
     var.update(seed_vars)
-    DBG(f"[TRACE:E17] final={var['E17']} (G15={g15})")
 
-    # I17 (اگر فرمول دارد) ــ قبل از K15
     if "I17" in formulas_py:
         i17_raw = safe_resolve("I17")
         var["I17"] = as_num(i17_raw, 0.0)
     else:
         var.setdefault("I17", float(seed_vars.get("I17", 0.0)))
 
-    # K15 اکنون محاسبه شود تا صفر نشود
     if "K15" in formulas_py:
         k15_raw = safe_resolve("K15")
         var["K15"] = as_num(k15_raw, 0.0)
     else:
         var.setdefault("K15", 0.0)
 
-    # ───────── ارزیابی چندمرحله‌ای تا همگرایی ─────────
+    # ارزیابی چندمرحله‌ای
     MAX_PASSES = 5
-    for p in range(1, MAX_PASSES + 1):
+    for _ in range(MAX_PASSES):
         changed = False
         for key in formulas_py.keys():
-            if key in ("E17", "K15"):  # همین‌ها را قبلاً تثبیت کرده‌ایم
+            if key in ("E17", "K15"):
                 continue
             raw = safe_resolve(key)
-            num = as_num_or_none(raw)
+            num = _as_num_or_none(raw)
             if num is not None:
                 prev = var.get(key)
                 val = float(num)
                 if prev is None or (isinstance(prev, (int, float)) and abs(prev - val) > 1e-9):
                     var[key] = val
                     changed = True
-        DBG(f"[PASS {p}] changed={changed}")
         if not changed:
             break
 
-    # ───────── پیشنهاد عرض ورق و نگاشت ─────────
+    # ───────── پیشنهاد عرض ورق + نگاشت ─────────
     try:
         # E20 / K20
         var["E20"] = float(var.get("E20") or as_num(safe_resolve("E20"), 0.0))
@@ -420,21 +559,25 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
 
         required_w = var["K20"] or 0.0
 
-        # --- پارس امن fixed_widths از تنظیمات (با ارقام/ویرگول فارسی) ---
-        def _parse_fixed_widths(raw_fw):
-            if raw_fw is None or raw_fw == "":
-                return []
-            if isinstance(raw_fw, (list, tuple)):
-                return [as_num(x, 0.0) for x in raw_fw if as_num(x, 0.0) > 0]
-            # پشتیبانی از ,  ؛  ،  فاصله  براکت
-            parts = re.split(r"[,\s;\u060C\[\]]+", str(raw_fw).translate(PERSIAN_DIGITS))
-            return [as_num(x, 0.0) for x in parts if as_num(x, 0.0) > 0]
+        # عرض‌های ثابت از تنظیمات (JSONField یا رشته)
+        # فقط همین‌ها؛ تنظیمات نادیده گرفته می‌شود
+        fixed_widths_all = get_fixed_widths_hard()
+        fw_for_k20 = fixed_widths_all  # اگر جایی جدا لازم داری
 
-        fixed_from_settings = _parse_fixed_widths(getattr(bs, "fixed_widths", None))
-        fixed_widths_all = fixed_from_settings or [80, 90, 100, 110, 120, 125, 140]
-        fixed_widths_all = sorted(set(w for w in fixed_widths_all if w > 0))
+        # جدول جامع «بهینه برای هر عرض ثابت» (همهٔ عرض‌ها)
+        k15_val = float(var.get("K15") or 0.0)
+        context["best_by_width"] = best_for_each_width(k15_val, fixed_widths_all, fmax=30)
 
-        # --- لیست کامل همهٔ ترکیب‌های F×K15 با همهٔ عرض‌های ثابت (۱..۳۰) ---
+        # گزینه‌های انتخاب (مثل قبل: دورریز < 11 و محدود به چند مورد)
+        options = compute_sheet_options(
+            required_width_cm=required_w,
+            fixed_widths=fixed_widths_all,
+            max_waste_cm=11.0,
+            max_options=6,
+        )
+        context["sheet_options"] = options
+        context["fixed_widths_debug"] = fixed_widths_all
+        # برای نمایش کوچک «تمام ترکیب‌ها با waste<11»
         def build_f24_candidates_all(
             k15: float,
             fixed_widths: list[float],
@@ -442,14 +585,10 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             f24_min: int = 1,
             f24_max: int = 30,
         ) -> list[dict]:
-            """
-            تمام ترکیب‌های (F24=f24_min..f24_max) × (تمام fixed_widths) را می‌سنجد.
-            اگر w >= need = F24*K15 و waste = w-need بین [0, max_waste) بود، اضافه می‌شود.
-            """
             rows: list[dict] = []
             if not k15 or k15 <= 0 or not fixed_widths:
                 return rows
-            for f in range(f24_min, f24_max + 1):  # 1..30
+            for f in range(f24_min, f24_max + 1):
                 need = f * k15
                 for w in fixed_widths:
                     if w >= need:
@@ -464,26 +603,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             rows.sort(key=lambda r: (r["waste"], r["sheet_width"], -r["f24"]))
             return rows
 
-        k15_val = float(var.get("K15") or 0.0)
-        # اگر K15 هنوز تهی بود، یک‌بار دیگر از resolver بخوان
-        if (not k15_val) and ("K15" in formulas_py):
-            k15_raw_fallback = safe_resolve("K15")
-            k15_val = as_num(k15_raw_fallback, 0.0)
-            var["K15"] = k15_val
-
-        # دیباگ برای ریشه‌یابی خالی بودن جدول
-        context["debug_k15"] = {
-            "K15": k15_val,
-            "fixed_widths": fixed_widths_all,
-            "max_fixed": max(fixed_widths_all) if fixed_widths_all else None,
-        }
-
-        context.setdefault("warnings", [])
-        if not k15_val:
-            context["warnings"].append("K15 صفر یا نامعتبر است.")
-        if not fixed_widths_all:
-            context["warnings"].append("لیست عرض‌های ثابت خالی است.")
-
+        # جدول ترکیب‌های ممکن F×K15 (دلخواه/دیباگ)
         context["f24_candidates"] = build_f24_candidates_all(
             k15=k15_val,
             fixed_widths=fixed_widths_all,
@@ -491,86 +611,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             f24_min=1,
             f24_max=30,
         )
-
-        # (shortlist سابق اگر خواستی نگه داری)
-        def build_f24_candidates_short(
-            k15: float,
-            fixed_widths: list[float],
-            max_waste: float = 11.0,
-            f24_start: int = 30,
-            f24_stop: int = 2,
-        ) -> list[dict]:
-            rows: list[dict] = []
-            if not k15 or k15 <= 0 or not fixed_widths:
-                return rows
-            fws = sorted(fixed_widths)
-            for f in range(f24_start, f24_stop - 1, -1):
-                need = f * k15
-                chosen = None
-                for w in fws:
-                    if w >= need:
-                        waste = w - need
-                        if 0 <= waste < max_waste:
-                            chosen = (w, waste)
-                        break
-                if chosen:
-                    w, waste = chosen
-                    rows.append({
-                        "width": round(float(w), 2),
-                        "f24": int(f),
-                        "waste": round(float(waste), 2),
-                        "need": round(float(need), 2),
-                    })
-            return rows
-
-        context["f24_candidates_short"] = build_f24_candidates_short(
-            k15=k15_val,
-            fixed_widths=fixed_widths_all,
-            max_waste=11.0,
-            f24_start=30,
-            f24_stop=2,
-        )
-
-        # جدول K15×(1..30) با نزدیک‌ترین عرض ثابت و وضعیت مناسب/نامناسب
-        def _pick_smallest_fixed(width_needed: float, fixed_widths: list[float]):
-            for w in sorted(fixed_widths):
-                if w >= width_needed:
-                    return float(w), float(w - width_needed)
-            return None, None
-
-        k15_multiples = []
-        if k15_val > 0 and fixed_widths_all:
-            for f in range(1, 31):
-                need = round(f * k15_val, 2)
-                bw, waste = _pick_smallest_fixed(need, fixed_widths_all)
-                k15_multiples.append({
-                    "f": f,
-                    "need": need,                          # F * K15
-                    "best_width": bw,                      # کوچک‌ترین عرض ثابتِ ≥ need
-                    "waste": None if waste is None else round(waste, 2),
-                    "ok": (waste is not None) and (0 <= waste < 11.0),
-                    "reason": (
-                        "no_fixed_ge_need" if bw is None else
-                        ("waste>=11" if (waste is not None and waste >= 11.0) else "ok")
-                    ),
-                })
-        context["k15_multiples"] = k15_multiples
-
-        # پیشنهادهای سنتی وابسته به K20 برای رادیویی بالای صفحه
-        fw_for_k20 = fixed_widths_all  # می‌توانی متفاوت نگه داری، فعلاً همان
-        options = compute_sheet_options(
-            required_width_cm=required_w,
-            fixed_widths=fw_for_k20,
-            max_waste_cm=11.0,
-            max_options=6,
-        )
-        context["sheet_options"] = options
-        context["result_preview"] = {
-            "E20": q2(var["E20"], "0.01"),
-            "K20": q2(required_w, "0.01"),
-            "K15": q2(var.get("K15", 0.0), "0.01"),
-        }
-
+        # اگر کاربر گزینه‌ای را انتخاب کرده بود
         picked = as_num(request.POST.get("sheet_choice"), 0.0)
         if picked and any(abs(picked - o["width"]) < 1e-6 for o in options):
             chosen_w = picked
@@ -581,7 +622,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         else:
             count, chosen_w, waste, warn, note = choose_per_sheet_and_width(
                 required_width_cm=required_w,
-                fixed_widths=fw_for_k20,
+                fixed_widths=fixed_widths_all,
                 max_waste_cm=11.0,
                 e20_len_cm=var["E20"],
             )
@@ -591,18 +632,18 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         obj.waste_warning       = bool(warn)
         obj.note_message        = note
 
-        # تزریق به محیط برای فرمول‌های پایین‌دستی
+        # تزریق برای فرمول‌های انتهایی
         var["F24"] = float(obj.F24_per_sheet_count)
         var["sheet_width"] = float(chosen_w)
 
-        # پاس نهایی برای خروجی‌های انتهایی
+        # پاس نهایی خروجی‌ها
         for key in ["E28","E38","I38","E41","E40","M40","M41","H46","J48","E48"]:
             if key in formulas_py:
                 var[key] = as_num(safe_resolve(key), 0.0)
             else:
                 var[key] = float(var.get(key, 0.0))
 
-        # ───────── نگاشت به مدل ─────────
+        # نگاشت به مدل
         obj.E28_carton_consumption = q2(var["E28"], "0.0001")
         obj.E38_sheet_area_m2      = q2(var["E38"], "0.0001")
         obj.I38_sheet_count        = int(math.ceil(var["I38"] or 0.0))
@@ -614,7 +655,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         obj.J48_tax                = q2(var["J48"], "0.01")
         obj.E48_price_with_tax     = q2(var["E48"], "0.01")
 
-        # ذخیرهٔ اختیاری
+        # مقادیر کمکی اختیاری
         if hasattr(obj, "E17_lip_value"):
             obj.E17_lip_value = q2(var["E17"], "0.01")
         if hasattr(obj, "K15_sheet_calc"):

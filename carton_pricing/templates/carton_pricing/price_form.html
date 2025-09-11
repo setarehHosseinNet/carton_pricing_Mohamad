@@ -142,7 +142,7 @@
       {% for e in form.I15_hgt.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# فیلد لب درب: فقط وقتی A6 انتهایش 11 یا 12 باشد، نمایش بده #}
+    {# فیلد لب درب #}
     <div class="col-md-3" id="field-e17-wrap">
       <label class="form-label" for="{{ form.E17_lip.id_for_label }}">{{ form.E17_lip.label }}</label>
       {{ form.E17_lip }}
@@ -191,64 +191,52 @@
   </div>
 
   {# ── گزینه‌های عرض ورق (اگر موجود) ── #}
-  {% if sheet_options %}
-    <div class="card shadow-sm mt-4">
-      <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
-      <div class="card-body">
- <p class="text-muted mb-2">
-  <strong>K15 (محاسبه شیت) = {{ result_preview.K15 }}</strong> |
-  <strong>E20 = {{ result_preview.E20 }}</strong> |
-  <strong>K20 = {{ result_preview.K20 }}</strong>
-  <br>
-  با توجه به مقادیر بالا، گزینه‌های زیر برای عرض ورق با دورریز کمتر از <strong>11cm</strong> پیشنهاد می‌شوند.
-  لطفاً یکی را انتخاب کنید و «محاسبه» را بزنید.
-</p>
+ {% if sheet_options %}
+<div class="card shadow-sm mt-4">
+  <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
+  <div class="card-body">
+    <p class="text-muted mb-2">
+      <strong>K15 (محاسبه شیت) = {{ result_preview.K15 }}</strong> |
+      <strong>E20 = {{ result_preview.E20 }}</strong> |
+      <strong>K20 = {{ result_preview.K20 }}</strong><br>
+      این گزینه‌ها فیلتر شده‌اند (دورریز &lt; 11cm). یکی را انتخاب کنید و «محاسبه» را بزنید.
+    </p>
 
-        <div class="table-responsive">
-          <table class="table table-sm align-middle">
-            <thead class="text-center">
-              <tr>
-                <th>انتخاب</th>
-                <th>عرض ورق (cm)</th>
-                <th>F24 (تعداد/ورق)</th>
-                <th>دورریز (cm)</th>
-              </tr>
-            </thead>
-            <tbody>
-             {% for o in sheet_options %}
-<tr>
-  <td class="text-center">
-    <input type="radio"
-           name="sheet_choice"
-           value="{{ o.width }}"
-           {% if request.POST.sheet_choice %}
-             {% if request.POST.sheet_choice|floatformat:2 == o.width|floatformat:2 %}
-               checked
-             {% endif %}
-           {% elif forloop.first %}
-             checked
-           {% endif %}>
-  </td>
-  <td class="text-center">{{ o.width|floatformat:0 }}</td>
-  <td class="text-center">{{ o.count }}</td>
-  <td class="text-center">{{ o.waste|floatformat:1 }}</td>
-</tr>
-{% empty %}
-<tr>
-  <td colspan="4" class="text-center text-muted">
-    هیچ گزینه‌ای یافت نشد.
-  </td>
-</tr>
-{% endfor %}
-
-            </tbody>
-          </table>
-        </div>
-
-        <button class="btn btn-primary mt-2">محاسبه</button>
-      </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle text-center">
+        <thead>
+          <tr>
+            <th>انتخاب</th>
+            <th>عرض ورق (cm)</th>
+            <th>F24 (تعداد/ورق)</th>
+            <th>دورریز (cm)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in sheet_options %}
+            <tr>
+              <td>
+                <input type="radio" name="sheet_choice" value="{{ o.width }}"
+                  {% if request.POST.sheet_choice %}
+                    {% if request.POST.sheet_choice|floatformat:2 == o.width|floatformat:2 %}checked{% endif %}
+                  {% elif forloop.first %}checked{% endif %}>
+              </td>
+              <td>{{ o.width|floatformat:0 }}</td>
+              <td>{{ o.count }}</td>
+              <td>{{ o.waste|floatformat:1 }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="text-muted">هیچ گزینه‌ای یافت نشد.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-  {% endif %}
+
+    <button class="btn btn-primary mt-2">محاسبه</button>
+  </div>
+</div>
+{% endif %}
+
 </form>
 
 {# ── نتایج ── #}
@@ -282,6 +270,54 @@
     </div>
   </div>
 {% endif %}
+
+{# ── NEW: بهترین حالت برای هر عرض ثابت (همهٔ عرض‌ها) ── #}
+{% if best_by_width %}
+  <div class="card shadow-sm mt-4">
+    <div class="card-header">
+      بهینه برای هر عرض ثابت (بیشترین F24 ≤ 30 با کمترین دورریز)
+      <span class="text-muted small d-block mt-1">
+        معیار رنگ: <span class="text-success fw-bold">سبز</span> اگر 0 &lt; دورریز &lt; 11 |
+        <span class="text-danger fw-bold">قرمز</span> برای سایر حالات (شامل 0 و 11).
+      </span>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-sm align-middle text-center">
+          <thead>
+            <tr>
+              <th>(cm) عرض ورق</th>
+              <th>F24 (≤ 30)</th>
+              <th>(cm) نیاز = F × K15</th>
+              <th>(cm) دورریز</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in best_by_width %}
+              <tr>
+                <td>{{ r.sheet_width|floatformat:0 }}</td>
+                <td>{{ r.f24 }}</td>
+                <td>{% if r.need is not None %}{{ r.need|floatformat:2 }}{% else %}—{% endif %}</td>
+                <td class="{% if r.waste is not None and r.waste > 0 and r.waste < 11 %}text-success{% else %}text-danger{% endif %}">
+                  {% if r.waste is not None %}{{ r.waste|floatformat:2 }}{% else %}—{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# اختیاری: دیباگِ عرض‌های تنظیمات #}
+      {% if fixed_widths_debug %}
+        <div class="small text-muted mt-2">
+          عرض‌های خوانده‌شده از تنظیمات: {{ fixed_widths_debug|join:", " }}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+
 {# ── دیباگ ── #}
 {% if vars %}
   <details class="mb-3"><summary>نمایش متغیّرها (دیباگ)</summary>
@@ -297,61 +333,6 @@
       {% endfor %}
     </ul>
   </details>
-{% endif %}
-
-{% if k15_multiples %}
-<div class="accordion mb-3" id="acc-k15x">
-  <div class="accordion-item">
-    <h2 class="accordion-header" id="dbg-k15x">
-      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
-              data-bs-target="#collapse-k15x" aria-expanded="false" aria-controls="collapse-k15x">
-        سری K15 × (1..30) — بررسی با عرض‌های ثابت
-      </button>
-    </h2>
-    <div id="collapse-k15x" class="accordion-collapse collapse" aria-labelledby="dbg-k15x" data-bs-parent="#acc-k15x">
-      <div class="accordion-body">
-        <div class="table-responsive">
-          <table class="table table-sm align-middle">
-            <thead>
-              <tr>
-                <th>F24 (فرضی)</th>
-                <th>نیاز (cm) = F × K15</th>
-                <th>کوچک‌ترین عرض ثابت</th>
-                <th>دورریز (cm)</th>
-                <th>وضعیت</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in k15_multiples %}
-                <tr>
-                  <td>{{ row.f }}</td>
-                  <td>{{ row.need|floatformat:2 }}</td>
-                  <td>
-                    {% if row.best_width is not None %}
-                      {{ row.best_width|floatformat:0 }}
-                    {% else %}-{% endif %}
-                  </td>
-                  <td>
-                    {% if row.waste is not None %}
-                      {{ row.waste|floatformat:2 }}
-                    {% else %}-{% endif %}
-                  </td>
-                  <td>
-                    {% if row.ok %}
-                      <span class="text-success">مناسب (دورریز &lt; 11)</span>
-                    {% else %}
-                      <span class="text-muted">نامناسب</span>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
 {% endif %}
 
 {# ── URL ها را به JS تزریق کن تا NoReverseMatch پیش نیاید ── #}
