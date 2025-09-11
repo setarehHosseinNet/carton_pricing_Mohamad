@@ -1,11 +1,13 @@
 # carton_pricing/views.py
 # -*- coding: utf-8 -*-
-
-
 from __future__ import annotations
+
 # ───────────────────────── stdlib ─────────────────────────
-from decimal import Decimal
-from typing import Any
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any, Dict
+import math
+import re
+
 # ───────────────────────── Django ─────────────────────────
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
@@ -13,60 +15,6 @@ from django.db import transaction
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
-
-# فرض: این تابع یک dict از مقادیر پیش‌فرض برمی‌گرداند (نه مدل)
-def get_settings_external() -> dict:
-    ...
-
-def seed_defaults_from_external(ext: dict) -> dict:
-    """مقادیر اولیه‌ی مناسب برای ساخت اولین رکورد BaseSettings."""
-    ext = ext or {}
-    return {
-        "overhead_per_meter": ext.get("overhead_per_meter", 0) or 0,
-        "sheet_price_cash":   ext.get("sheet_price_cash", 0) or 0,
-        "sheet_price_credit": ext.get("sheet_price_credit", 0) or 0,
-        "profit_rate_percent":ext.get("profit_rate_percent", 0) or 0,
-        "interface_cost":     ext.get("interface_cost", 0) or 0,
-        "pallet_cost":        ext.get("pallet_cost", 0) or 0,
-        "shipping_cost":      ext.get("shipping_cost", 0) or 0,
-        "fixed_widths":       ext.get("fixed_widths", ""),   # اگر TextField/JSONField بسته به مدل
-    }
-
-def get_or_create_settings() -> "BaseSettings":
-    """
-    Singleton pattern: اگر رکورد هست همان را بده؛ وگرنه فقط یک‌بار با defaults بساز.
-    هیچ‌وقت در هر درخواست، تنظیمات را از سورس خارجی روی DB overwrite نکن!
-    """
-    from .models import BaseSettings
-    bs = BaseSettings.objects.first()
-    if bs:
-        return bs
-    defaults = seed_defaults_from_external(get_settings_external())
-    return BaseSettings.objects.create(**defaults)
-
-def base_settings_view(request: HttpRequest) -> HttpResponse:
-    """
-    صفحهٔ اطلاعات پایه: رکورد singleton را لود می‌کنیم و همان را آپدیت می‌کنیم.
-    """
-    from .forms import BaseSettingsForm
-
-    bs = get_or_create_settings()  # نه ensure_settings_model(get_settings_external())
-
-    if request.method == "POST":
-        form = BaseSettingsForm(request.POST, instance=bs)
-        if form.is_valid():
-            with transaction.atomic():
-                bs = form.save()  # همان رکورد را آپدیت می‌کند (pk برقرار است)
-            messages.success(request, "اطلاعات پایه ذخیره شد.")
-            return redirect("carton_pricing:base_settings")
-        else:
-            # برای دیباگ: ببین دقیقاً کدام فیلد خطاست
-            # print(form.errors.as_json())
-            messages.error(request, "خطا در ذخیره تنظیمات. لطفاً مقادیر ورودی را بررسی کنید.")
-    else:
-        form = BaseSettingsForm(instance=bs)
-
-    return render(request, "carton_pricing/base_settings.html", {"form": form})
 
 # ─────────────────────── App Imports ──────────────────────
 from .models import BaseSettings, CalcFormula, Customer, PriceQuotation
@@ -105,6 +53,27 @@ def DBG(*parts: Any) -> None:
 def q2(val: float | Decimal, places: str) -> Decimal:
     """گرد کردن با ROUND_HALF_UP بر اساس قالب اعشاری places مثل '0.01'."""
     return Decimal(val).quantize(Decimal(places), rounding=ROUND_HALF_UP)
+
+
+# اعداد فارسی → انگلیسی + پارس امن عدد
+PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+def as_num_or_none(x: Any) -> float | None:
+    try:
+        if x is None:
+            return None
+        if isinstance(x, (int, float)):
+            return float(x)
+        s = str(x).strip().translate(PERSIAN_DIGITS)
+        if s in ("", "*"):
+            return None
+        s = s.replace(",", "").replace("٬", "")  # کاما انگلیسی/فارسی
+        return float(s)
+    except Exception:
+        return None
+
+def as_num(x: Any, default: float = 0.0) -> float:
+    v = as_num_or_none(x)
+    return default if v is None else v
 
 
 # ───────────────────────── API (Ajax) ─────────────────────
@@ -150,6 +119,48 @@ def api_last_order(request: HttpRequest) -> JsonResponse:
 
 
 # ─────────────── Pages: Base Settings & Formulas ───────────────
+def seed_defaults_from_external(ext: dict) -> dict:
+    """مقادیر اولیه‌ی مناسب برای ساخت اولین رکورد BaseSettings."""
+    ext = ext or {}
+    return {
+        "overhead_per_meter": ext.get("overhead_per_meter", 0) or 0,
+        "sheet_price_cash":   ext.get("sheet_price_cash", 0) or 0,
+        "sheet_price_credit": ext.get("sheet_price_credit", 0) or 0,
+        "profit_rate_percent":ext.get("profit_rate_percent", 0) or 0,
+        "interface_cost":     ext.get("interface_cost", 0) or 0,
+        "pallet_cost":        ext.get("pallet_cost", 0) or 0,
+        "shipping_cost":      ext.get("shipping_cost", 0) or 0,
+        "fixed_widths":       ext.get("fixed_widths", ""),   # TextField/JSONField
+    }
+
+def get_or_create_settings() -> BaseSettings:
+    """
+    Singleton pattern: اگر رکورد هست همان را بده؛ وگرنه فقط یک‌بار با defaults بساز.
+    """
+    bs = BaseSettings.objects.first()
+    if bs:
+        return bs
+    defaults = seed_defaults_from_external(get_settings_external())
+    return BaseSettings.objects.create(**defaults)
+
+def base_settings_view(request: HttpRequest) -> HttpResponse:
+    """
+    صفحهٔ اطلاعات پایه: رکورد singleton را لود می‌کنیم و همان را آپدیت می‌کنیم.
+    """
+    bs = get_or_create_settings()
+
+    if request.method == "POST":
+        form = BaseSettingsForm(request.POST, instance=bs)
+        if form.is_valid():
+            with transaction.atomic():
+                form.save()  # همان رکورد را آپدیت می‌کند (pk برقرار است)
+            messages.success(request, "اطلاعات پایه ذخیره شد.")
+            return redirect("carton_pricing:base_settings")
+        messages.error(request, "خطا در ذخیره تنظیمات. لطفاً مقادیر ورودی را بررسی کنید.")
+    else:
+        form = BaseSettingsForm(instance=bs)
+
+    return render(request, "carton_pricing/base_settings.html", {"form": form})
 
 
 # ایجاد پیش‌فرض فرمول‌ها اگر settings_api خودش انجام نده
@@ -173,14 +184,12 @@ def _ensure_default_formulas_if_needed() -> None:
             key=k, defaults={"expression": expr, "description": k}
         )
 
-
 def formulas_view(request: HttpRequest) -> HttpResponse:
     """
     صفحه فرمول‌ها (ایجاد پیش‌فرض‌ها، افزودن و ویرایش گروهی).
     اگر ماژول بیرونی ensure_default_formulas را انجام نداده، از fallback داخلی کمک می‌گیریم.
     """
     try:
-        # اگر settings_api وظیفه را دارد، بگذار انجام بدهد
         from .settings_api import ensure_default_formulas  # type: ignore
         ensure_default_formulas()
     except Exception:
@@ -216,56 +225,6 @@ def formulas_view(request: HttpRequest) -> HttpResponse:
 
 
 # ───────────────────────── Price Form ─────────────────────────
-# carton_pricing/views.py
-
-
-
-
-
-# carton_pricing/views.py
-
-
-
-# ---------- کوچک‌های کاربردی ----------
-def DBG(*parts: Any) -> None:
-    try:
-        print(" ".join(str(p) for p in parts))
-    except Exception:
-        print(" ".join(repr(p) for p in parts))
-
-def q2(val: float | Decimal, places: str) -> Decimal:
-    return Decimal(val).quantize(Decimal(places), rounding=ROUND_HALF_UP)
-
-def as_num(x: Any, default: float | None = 0.0) -> float | None:
-    """
-    تبدیل امن: None/""/"*" → default
-    رشتهٔ عددی → float
-    عدد → float
-    """
-    try:
-        if x is None:
-            return default
-        if isinstance(x, str):
-            s = x.strip()
-            if s in ("", "*"):
-                return default
-            return float(s.replace(",", ""))
-        return float(x)
-    except Exception:
-        return default
-
-
-
-
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Dict
-import math, re
-
-# فرض: این‌ها را قبلاً داری
-# from .models import PriceQuotation, CalcFormula, BaseSettings
-# from .forms import PriceForm
-# from .utils import ensure_settings_model, get_settings_external, to_float, compute_sheet_options, choose_per_sheet_and_width, DBG, build_resolver, render_formula
-
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
     فرم قیمت (نسخهٔ پایدار برای فرمول‌های داینامیک و وابسته):
@@ -274,29 +233,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
       3) تثبیت E17 و سپس محاسبهٔ I17 و K15
       4) ارزیابی چندمرحله‌ای تا همگرایی
       5) پیشنهاد عرض ورق، تزریق F24/sheet_width و پاس نهایی
-      6) نگاشت نتایج به مدل + پیش‌نمایش K15
+      6) نگاشت نتایج به مدل + پیش‌نمایش K15 + سری F×K15 با عرض‌های ثابت
     """
-
-    # ───────── Helpers ─────────
-    def q2(val: float | Decimal, places: str) -> Decimal:
-        return Decimal(val).quantize(Decimal(places), rounding=ROUND_HALF_UP)
-
-    def as_num_or_none(x: Any) -> float | None:
-        try:
-            if x is None:
-                return None
-            if isinstance(x, (int, float)):
-                return float(x)
-            s = str(x).strip()
-            if s in ("", "*"):
-                return None
-            return float(s.replace(",", ""))
-        except Exception:
-            return None
-
-    def as_num(x: Any, default: float = 0.0) -> float:
-        v = as_num_or_none(x)
-        return default if v is None else v
 
     # نگاشت فیلد فرم → نام متغیر
     FIELD_TO_VAR: Dict[str, str] = {
@@ -481,44 +419,39 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         obj.K20_industrial_wid = q2(var["K20"], "0.01")
 
         required_w = var["K20"] or 0.0
-        fw = bs.fixed_widths or []
-        if isinstance(fw, str):
-            fw = [w for w in re.split(r"[,\s\[\]]+", fw) if w]
-        fixed_widths = [as_num(x, 0.0) for x in fw if as_num(x, 0.0) > 0]
 
-        # --- پیشنهادهای عرض ورق بر اساس F24 از 30 تا 2 (F24 * K15) ---
-        # --- پیشنهادهای عرض ورق بر اساس تمام ترکیب‌های F24×K15 و همه‌ی عرض‌های ثابت ---
+        # --- پارس امن fixed_widths از تنظیمات (با ارقام/ویرگول فارسی) ---
         def _parse_fixed_widths(raw_fw):
             if raw_fw is None or raw_fw == "":
                 return []
             if isinstance(raw_fw, (list, tuple)):
                 return [as_num(x, 0.0) for x in raw_fw if as_num(x, 0.0) > 0]
-            parts = re.split(r"[,\s\[\]]+", str(raw_fw))  # مانند "80,90,100"
+            # پشتیبانی از ,  ؛  ،  فاصله  براکت
+            parts = re.split(r"[,\s;\u060C\[\]]+", str(raw_fw).translate(PERSIAN_DIGITS))
             return [as_num(x, 0.0) for x in parts if as_num(x, 0.0) > 0]
 
         fixed_from_settings = _parse_fixed_widths(getattr(bs, "fixed_widths", None))
         fixed_widths_all = fixed_from_settings or [80, 90, 100, 110, 120, 125, 140]
         fixed_widths_all = sorted(set(w for w in fixed_widths_all if w > 0))
 
+        # --- لیست کامل همهٔ ترکیب‌های F×K15 با همهٔ عرض‌های ثابت (۱..۳۰) ---
         def build_f24_candidates_all(
-                k15: float,
-                fixed_widths: list[float],
-                max_waste: float = 11.0,
-                f24_min: int = 1,
-                f24_max: int = 30,
+            k15: float,
+            fixed_widths: list[float],
+            max_waste: float = 11.0,
+            f24_min: int = 1,
+            f24_max: int = 30,
         ) -> list[dict]:
             """
             تمام ترکیب‌های (F24=f24_min..f24_max) × (تمام fixed_widths) را می‌سنجد.
-            اگر w >= need = F24*K15 و waste = w-need بین [0, max_waste) بود، در خروجی می‌آید.
-            خروجی: لیستی از دیکشنری‌ها برای نمایش در تمپلیت.
+            اگر w >= need = F24*K15 و waste = w-need بین [0, max_waste) بود، اضافه می‌شود.
             """
             rows: list[dict] = []
             if not k15 or k15 <= 0 or not fixed_widths:
                 return rows
-
-            for f in range(f24_min, f24_max + 1):  # 1 .. 30
-                need = f * k15  # عرض لازم
-                for w in fixed_widths:  # همه عرض‌های ثابت
+            for f in range(f24_min, f24_max + 1):  # 1..30
+                need = f * k15
+                for w in fixed_widths:
                     if w >= need:
                         waste = w - need
                         if 0 <= waste < max_waste:
@@ -526,13 +459,31 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                                 "sheet_width": round(float(w), 2),
                                 "f24": int(f),
                                 "waste": round(float(waste), 2),
-                                "req_width": round(float(need), 2),  # F24*K15
+                                "req_width": round(float(need), 2),
                             })
-            # مرتب‌سازی: کمترین دورریز، سپس عرض ورق صعودی، سپس F24 نزولی (دلخواه)
             rows.sort(key=lambda r: (r["waste"], r["sheet_width"], -r["f24"]))
             return rows
 
         k15_val = float(var.get("K15") or 0.0)
+        # اگر K15 هنوز تهی بود، یک‌بار دیگر از resolver بخوان
+        if (not k15_val) and ("K15" in formulas_py):
+            k15_raw_fallback = safe_resolve("K15")
+            k15_val = as_num(k15_raw_fallback, 0.0)
+            var["K15"] = k15_val
+
+        # دیباگ برای ریشه‌یابی خالی بودن جدول
+        context["debug_k15"] = {
+            "K15": k15_val,
+            "fixed_widths": fixed_widths_all,
+            "max_fixed": max(fixed_widths_all) if fixed_widths_all else None,
+        }
+
+        context.setdefault("warnings", [])
+        if not k15_val:
+            context["warnings"].append("K15 صفر یا نامعتبر است.")
+        if not fixed_widths_all:
+            context["warnings"].append("لیست عرض‌های ثابت خالی است.")
+
         context["f24_candidates"] = build_f24_candidates_all(
             k15=k15_val,
             fixed_widths=fixed_widths_all,
@@ -541,30 +492,20 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             f24_max=30,
         )
 
-        # اگر در settings چیزی نبود، پیش‌فرض‌هایی که گفتی:
-        fixed_from_settings = _parse_fixed_widths(getattr(bs, "fixed_widths", None))
-        fixed_widths_f24 = fixed_from_settings or [80, 90, 100, 110, 120, 125, 140]
-        fixed_widths_f24 = sorted(set(w for w in fixed_widths_f24 if w > 0))
-
-        def build_f24_candidates(k15: float,
-                                 fixed_widths: list[float],
-                                 max_waste: float = 11.0,
-                                 f24_start: int = 30,
-                                 f24_stop: int = 2) -> list[dict]:
-            """
-            برای F24 از f24_start تا f24_stop (کاهشی) مقدار لازمِ عرض = F24*K15 را می‌سازد
-            و کوچک‌ترین عرض ثابتِ >= آن را که دورریز بین 0..max_waste داشته باشد، انتخاب می‌کند.
-            خروجی: [{width, f24, waste, need}]  (need=F24*K15)
-            """
-
+        # (shortlist سابق اگر خواستی نگه داری)
+        def build_f24_candidates_short(
+            k15: float,
+            fixed_widths: list[float],
+            max_waste: float = 11.0,
+            f24_start: int = 30,
+            f24_stop: int = 2,
+        ) -> list[dict]:
             rows: list[dict] = []
             if not k15 or k15 <= 0 or not fixed_widths:
                 return rows
-
             fws = sorted(fixed_widths)
             for f in range(f24_start, f24_stop - 1, -1):
-                need = f * k15  # عرض موردنیاز
-                # کوچک‌ترین عرض ثابت ≥ need
+                need = f * k15
                 chosen = None
                 for w in fws:
                     if w >= need:
@@ -582,18 +523,44 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                     })
             return rows
 
-        k15_val = float(var.get("K15") or 0.0)
-        context["f24_candidates"] = build_f24_candidates(
+        context["f24_candidates_short"] = build_f24_candidates_short(
             k15=k15_val,
-            fixed_widths=fixed_widths_f24,
+            fixed_widths=fixed_widths_all,
             max_waste=11.0,
             f24_start=30,
             f24_stop=2,
         )
 
+        # جدول K15×(1..30) با نزدیک‌ترین عرض ثابت و وضعیت مناسب/نامناسب
+        def _pick_smallest_fixed(width_needed: float, fixed_widths: list[float]):
+            for w in sorted(fixed_widths):
+                if w >= width_needed:
+                    return float(w), float(w - width_needed)
+            return None, None
+
+        k15_multiples = []
+        if k15_val > 0 and fixed_widths_all:
+            for f in range(1, 31):
+                need = round(f * k15_val, 2)
+                bw, waste = _pick_smallest_fixed(need, fixed_widths_all)
+                k15_multiples.append({
+                    "f": f,
+                    "need": need,                          # F * K15
+                    "best_width": bw,                      # کوچک‌ترین عرض ثابتِ ≥ need
+                    "waste": None if waste is None else round(waste, 2),
+                    "ok": (waste is not None) and (0 <= waste < 11.0),
+                    "reason": (
+                        "no_fixed_ge_need" if bw is None else
+                        ("waste>=11" if (waste is not None and waste >= 11.0) else "ok")
+                    ),
+                })
+        context["k15_multiples"] = k15_multiples
+
+        # پیشنهادهای سنتی وابسته به K20 برای رادیویی بالای صفحه
+        fw_for_k20 = fixed_widths_all  # می‌توانی متفاوت نگه داری، فعلاً همان
         options = compute_sheet_options(
             required_width_cm=required_w,
-            fixed_widths=fixed_widths,
+            fixed_widths=fw_for_k20,
             max_waste_cm=11.0,
             max_options=6,
         )
@@ -603,29 +570,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "K20": q2(required_w, "0.01"),
             "K15": q2(var.get("K15", 0.0), "0.01"),
         }
-
-        # --- سری ضرب‌های K15 در 1..30 + نزدیک‌ترین عرضِ ثابت و دورریز ---
-        def _pick_smallest_fixed(width_needed: float, fixed_widths: list[float]):
-            """کوچک‌ترین عرض ثابتِ >= نیاز را برمی‌گرداند؛ اگر نبود، None."""
-            for w in sorted(fixed_widths):
-                if w >= width_needed:
-                    return float(w), float(w - width_needed)
-            return None, None
-
-        k15_val = float(var.get("K15") or 0.0)  # اگر قبلاً داری، تکراری نیست
-        k15_multiples = []
-        for f in range(1, 31):
-            need = round(f * k15_val, 2)
-            bw, waste = _pick_smallest_fixed(need, fixed_widths_f24)
-            k15_multiples.append({
-                "f": f,  # همان F24 فرضی
-                "need": need,  # F * K15
-                "best_width": bw,  # کوچک‌ترین عرض ثابت که جواب می‌دهد
-                "waste": None if waste is None else round(waste, 2),
-                "ok": (waste is not None) and (0 <= waste < 11.0),  # معیار قبلی تو
-            })
-
-        context["k15_multiples"] = k15_multiples
 
         picked = as_num(request.POST.get("sheet_choice"), 0.0)
         if picked and any(abs(picked - o["width"]) < 1e-6 for o in options):
@@ -637,7 +581,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         else:
             count, chosen_w, waste, warn, note = choose_per_sheet_and_width(
                 required_width_cm=required_w,
-                fixed_widths=fixed_widths,
+                fixed_widths=fw_for_k20,
                 max_waste_cm=11.0,
                 e20_len_cm=var["E20"],
             )
