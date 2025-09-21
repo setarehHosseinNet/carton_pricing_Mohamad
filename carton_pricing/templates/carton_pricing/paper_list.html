@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="row">
+  <div class="col-12">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h3>کاغذها</h3>
+      <a class="btn btn-success" href="{% url 'carton_pricing:paper_create' %}">+ کاغذ جدید</a>
+    </div>
+
+    {% if messages %}
+      {% for m in messages %}
+        <div class="alert alert-{{ m.tags }}">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <form method="get" class="row g-2 mb-3">
+      <div class="col-auto">
+        <input name="q" value="{{ q }}" type="search" class="form-control" placeholder="جستجوی نام…">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-outline-primary">جستجو</button>
+      </div>
+    </form>
+
+    <div class="card shadow-sm">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:80px">#</th>
+              <th>نام کاغذ</th>
+              <th style="width:120px">عملیات</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in page_obj.object_list %}
+              <tr>
+                <td>{{ p.id }}</td>
+                <td>{{ p.name_paper }}</td>
+                <td>
+                  <a class="btn btn-sm btn-primary" href="{% url 'carton_pricing:paper_update' p.id %}">ویرایش</a>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="3" class="text-center text-muted">موردی یافت نشد.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card-footer">
+        <nav aria-label="pagination">
+          <ul class="pagination mb-0">
+            {% if page_obj.has_previous %}
+              <li class="page-item">
+                <a class="page-link" href="?q={{ q }}&page={{ page_obj.previous_page_number }}">قبلی</a>
+              </li>
+            {% endif %}
+            <li class="page-item disabled">
+              <span class="page-link">صفحه {{ page_obj.number }} از {{ page_obj.paginator.num_pages }}</span>
+            </li>
+            {% if page_obj.has_next %}
+              <li class="page-item">
+                <a class="page-link" href="?q={{ q }}&page={{ page_obj.next_page_number }}">بعدی</a>
+              </li>
+            {% endif %}
+          </ul>
+        </nav>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

@@ -117,6 +117,163 @@ def api_last_order(request: HttpRequest) -> JsonResponse:
     }
     return JsonResponse({"ok": True, "data": data})
 
+#--------------------------------------------------------------------------
+
+
+
+
+
+def get_or_create_settings() -> BaseSettings:
+    """
+    فقط اگر هیچ رکوردی وجود نداشت، یک رکورد می‌سازد.
+    ⚠️ هرگز مقادیر موجود را با پیش‌فرض‌ها/خارجی‌ها overwrite نکن.
+    """
+    bs = BaseSettings.objects.filter(singleton_key="ONLY").order_by("-id").first()
+    if bs:
+        return bs
+
+    # فقط در حالت نبود رکورد، می‌توان از پیش‌فرض‌ها استفاده کرد (داخل مدل هم safe defaults داریم)
+    return BaseSettings.objects.create()  # از defaultهای خود مدل استفاده می‌شود
+
+
+# utils.py (یا هر جایی که مناسب است)
+
+import json
+import re
+from typing import Any, Iterable, List
+
+# اعداد و جداکننده‌های فارسی → لاتین
+_PERSIAN_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٬٫،", "0123456789,.,")
+
+
+def _normalize_fixed_widths(
+    value: Any,
+    *,
+    dedupe: bool = True,
+    sort_result: bool = True,
+    min_value: float = 1.0,
+    precision: int = 0,
+) -> List[float]:
+    """
+    مقدار ورودی `fixed_widths` را به لیستی از اعداد تبدیل می‌کند.
+
+    ورودی‌های قابل قبول:
+      - list/tuple/set از اعداد یا رشته‌ها
+      - رشته‌ی JSON آرایه‌ای مانند: "[80, 90, 100]"
+      - رشته‌ی CSV/space-separated مانند: "80,90,100" یا "80 90 100"
+      - شامل اعداد فارسی و جداکننده‌های فارسی
+
+    پارامترها:
+      dedupe: حذف مقادیر تکراری
+      sort_result: مرتب‌سازی صعودی خروجی
+      min_value: حذف مقادیر کوچکتر از این عدد (پیش‌فرض فقط اعداد مثبت)
+      precision: تعداد رقم اعشار برای گرد کردن (۰ یعنی عدد صحیح)
+
+    خروجی: List[float]
+    """
+    # 1) None یا خالی
+    if value is None or value == "":
+        return []
+
+    # 2) اگر خودش قابل iteration است (مثل list/tuple/set)
+    if isinstance(value, (list, tuple, set)):
+        tokens: Iterable[Any] = value
+    else:
+        # 3) اگر رشته باشد: نرمال‌سازی و تبدیل
+        if not isinstance(value, str):
+            value = str(value)
+
+        s = value.translate(_PERSIAN_MAP).strip()
+        if not s:
+            return []
+
+        # اول سعی در JSON array
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                parsed = json.loads(s)
+                return _normalize_fixed_widths(
+                    parsed,
+                    dedupe=dedupe,
+                    sort_result=sort_result,
+                    min_value=min_value,
+                    precision=precision,
+                )
+            except Exception:
+                pass
+
+        # سپس CSV / فاصله
+        tokens = (t for t in re.split(r"[,\s;|/]+", s) if t)
+
+    # 4) تبدیل به عدد، فیلتر و گرد کردن
+    out: List[float] = []
+    for t in tokens:
+        try:
+            num = float(str(t).translate(_PERSIAN_MAP))
+        except Exception:
+            continue
+        if num >= min_value:
+            if precision is not None and precision >= 0:
+                num = round(num, precision)
+            out.append(num)
+
+    # 5) یکتا و مرتب‌سازی طبق نیاز
+    if dedupe:
+        # یکتا با حفظ ترتیب
+        seen = set()
+        out = [x for x in out if not (x in seen or seen.add(x))]
+
+    if sort_result:
+        out = sorted(out)
+
+    return out
+
+def base_settings_view(request: HttpRequest) -> HttpResponse:
+    """
+    صفحهٔ اطلاعات پایه:
+    - فقط آخرین رکورد Singleton را لود می‌کنیم و همان را آپدیت می‌کنیم.
+    - هیچ همگام‌سازی خودکاری با منابع خارجی انجام نمی‌شود.
+    - fixed_widths به‌صورت امن normalized می‌شود.
+    """
+    bs = get_or_create_settings()
+
+    if request.method == "POST":
+        form = BaseSettingsForm(request.POST, instance=bs)
+        if form.is_valid():
+            cd = form.cleaned_data
+
+            # fixed_widths را محکم‌کاری کن (اگر ویجت JSON درست کار نکرده یا CSV آمده)
+            fixed_widths = _normalize_fixed_widths(cd.get("fixed_widths"))
+            if not fixed_widths:
+                # اگر کاربر خالی گذاشت، می‌توانی یا خالی ثبت کنی یا یک پیش‌فرض معقول بدهی
+                fixed_widths = [80, 90, 100, 110, 120, 125, 140]
+
+            with transaction.atomic():
+                bs.overhead_per_meter = cd.get("overhead_per_meter") or Decimal("0")
+                bs.sheet_price_cash   = cd.get("sheet_price_cash")   or Decimal("0")
+                bs.sheet_price_credit = cd.get("sheet_price_credit") or Decimal("0")
+                bs.profit_rate_percent = cd.get("profit_rate_percent") or Decimal("0")
+                bs.shipping_cost      = cd.get("shipping_cost")      or Decimal("0")
+                bs.pallet_cost        = cd.get("pallet_cost")        or Decimal("0")
+                bs.interface_cost     = cd.get("interface_cost")     or Decimal("0")
+                bs.fixed_widths       = fixed_widths
+                # custom_vars اگر در فرم هست:
+                if "custom_vars" in cd and cd.get("custom_vars") is not None:
+                    bs.custom_vars = cd["custom_vars"]
+                # Singleton key را تثبیت کن
+                bs.singleton_key = "ONLY"
+                bs.save()
+
+            messages.success(request, "اطلاعات پایه ذخیره شد.")
+            return redirect("carton_pricing:base_settings")
+        else:
+            messages.error(request, "خطا در ذخیره تنظیمات. لطفاً مقادیر ورودی را بررسی کنید.")
+    else:
+        # فقط نمایش؛ هیچ تغییری روی شیء نده
+        form = BaseSettingsForm(instance=bs)
+
+    return render(request, "carton_pricing/base_settings.html", {"form": form})
+
+
 
 # ─────────────── Pages: Base Settings & Formulas ───────────────
 def seed_defaults_from_external(ext: dict) -> dict:
@@ -133,34 +290,7 @@ def seed_defaults_from_external(ext: dict) -> dict:
         "fixed_widths":       ext.get("fixed_widths", ""),   # TextField/JSONField
     }
 
-def get_or_create_settings() -> BaseSettings:
-    """
-    Singleton pattern: اگر رکورد هست همان را بده؛ وگرنه فقط یک‌بار با defaults بساز.
-    """
-    bs = BaseSettings.objects.first()
-    if bs:
-        return bs
-    defaults = seed_defaults_from_external(get_settings_external())
-    return BaseSettings.objects.create(**defaults)
 
-def base_settings_view(request: HttpRequest) -> HttpResponse:
-    """
-    صفحهٔ اطلاعات پایه: رکورد singleton را لود می‌کنیم و همان را آپدیت می‌کنیم.
-    """
-    bs = get_or_create_settings()
-
-    if request.method == "POST":
-        form = BaseSettingsForm(request.POST, instance=bs)
-        if form.is_valid():
-            with transaction.atomic():
-                form.save()  # همان رکورد را آپدیت می‌کند (pk برقرار است)
-            messages.success(request, "اطلاعات پایه ذخیره شد.")
-            return redirect("carton_pricing:base_settings")
-        messages.error(request, "خطا در ذخیره تنظیمات. لطفاً مقادیر ورودی را بررسی کنید.")
-    else:
-        form = BaseSettingsForm(instance=bs)
-
-    return render(request, "carton_pricing/base_settings.html", {"form": form})
 
 
 # ایجاد پیش‌فرض فرمول‌ها اگر settings_api خودش انجام نده
@@ -692,7 +822,10 @@ def _normalize_num_text(x: Any) -> str:
 #     return render(request, "carton_pricing/price_form.html", context)
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
-    فرم قیمت: محاسبهٔ فرمول‌ها + پیشنهاد/انتخاب عرض ورق + تعیین Fee_amount (نقد/مدت‌دار)
+    فرم قیمت: محاسبه فرمول‌ها + پیشنهاد/انتخاب عرض ورق
+    تعیین Fee_amount:
+      - مستقیم از BaseSettings (M31 برای نقد، M33 برای مدت)
+      - اگر صفر بود ⇒ fallback از آخرین BaseSettings غیرصفر
     """
     # ---------- Helpers ----------
     def _norm_num(x: Any) -> str:
@@ -746,7 +879,64 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             })
         return out
 
-    # تبدیل نام فیلدهای فرم ↔ نام متغیرهای فرمول
+    # --- گرفتن آخرین فی معتبر از BaseSettings (fallback) ---
+    def _get_latest_fee_amount(settlement: str, *, fallback_cash: float = 0.0, fallback_credit: float = 0.0) -> float:
+        qs = BaseSettings.objects.all()
+        fns = {f.name for f in BaseSettings._meta.fields}
+        if "updated_at" in fns:
+            qs = qs.order_by("-updated_at", "-id")
+        elif "created_at" in fns:
+            qs = qs.order_by("-created_at", "-id")
+        else:
+            qs = qs.order_by("-id")
+
+        for row in qs:
+            v = row.sheet_price_credit if settlement == "credit" else row.sheet_price_cash
+            try:
+                v = float(v or 0)
+            except Exception:
+                v = float(Decimal(v or 0))
+            if v > 0:
+                return v
+        return float(fallback_credit if settlement == "credit" else fallback_cash)
+
+    # --- تزریق مستقیم مقادیر تنظیمات به var (M30/M31/M33/I41/E43/H43/J43/E46 + sheet_price/Fee_amount) ---
+    def fill_vars_from_settings(bs: BaseSettings, settlement: str, var: dict, cd: dict | None = None):
+        def _f(x):
+            if x is None:
+                return 0.0
+            try:
+                return float(x)
+            except Exception:
+                return float(Decimal(str(x)) or 0)
+
+        var["M30"] = _f(bs.overhead_per_meter)
+        var["M31"] = _f(bs.sheet_price_cash)
+        var["M33"] = _f(bs.sheet_price_credit)
+        var["I41"] = _f(bs.profit_rate_percent)
+        var["E43"] = _f(bs.shipping_cost)
+        var["H43"] = _f(bs.pallet_cost)
+        var["J43"] = _f(bs.interface_cost)
+
+        # E46: اولویت با فرم، بعد custom_vars["E46"]
+        e46 = None
+        if cd:
+            e46 = cd.get("E46") or cd.get("E46_round_adjust")
+            try:
+                e46 = float(e46)
+            except Exception:
+                e46 = None
+        if e46 is None:
+            try:
+                e46 = float((bs.custom_vars or {}).get("E46", 0))
+            except Exception:
+                e46 = 0.0
+        var["E46"] = 0.0 if e46 is None else e46
+
+        var["sheet_price"] = var["M33"] if settlement == "credit" else var["M31"]
+        var["Fee_amount"]  = var["sheet_price"]
+
+    # --- مپ فرم ↔ توکن‌ها ---
     FIELD_TO_VAR = {
         "E15_len": "E15", "G15_wid": "G15", "I15_hgt": "I15",
         "I8_qty": "I8", "E17_lip": "E17", "E46_round_adjust": "E46",
@@ -754,23 +944,25 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     }
     VAR_TO_FIELD = {v: k for k, v in FIELD_TO_VAR.items()}
 
-    # ---------- Initial context ----------
-    bs: BaseSettings = ensure_settings_model(get_settings_external())
+    # ---------- Load settings (بدون همگام‌سازی خارجی) ----------
+    bs: BaseSettings | None = BaseSettings.objects.order_by("-id").first()
+    if bs is None:
+        bs = BaseSettings.objects.create()
     context: Dict[str, Any] = {"settings": bs}
 
-    # ---------- GET: فرم خالی با مقادیر پیش‌فرض ----------
+    # ---------- GET ----------
     if request.method != "POST":
         form = PriceForm(initial={
             "A1_layers": 1, "A2_pieces": 1, "A3_door_type": 1, "A4_door_count": 1,
-            "payment_type": "cash",                # پیش‌فرض نقد
-            "has_print_notes": False,              # پیش‌فرض: ندارد
+            "payment_type": "cash",
+            "has_print_notes": False,
             "tech_shipping_on_customer": False,
         })
         form.fields["E17_lip"].required = False
         context["form"] = form
         return render(request, "carton_pricing/price_form.html", context)
 
-    # ---------- POST: دریافت و اعتبارسنجی ----------
+    # ---------- POST ----------
     form = PriceForm(request.POST)
     form.fields["E17_lip"].required = False
     context["form"] = form
@@ -781,11 +973,11 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     obj: PriceQuotation = form.save(commit=False)
     cd = form.cleaned_data
 
-    # نوع تسویه (نقد/مدت‌دار) + روزهای اعتبار
-    settlement = (request.POST.get("settlement") or cd.get("payment_type") or "cash").strip()
+    settlement_in = (request.POST.get("settlement") or cd.get("payment_type") or "cash").strip().lower()
+    settlement = "credit" if settlement_in == "credit" else "cash"
     credit_days = int(as_num(request.POST.get("credit_days"), 0))
 
-    # ---------- Seed vars برای موتور فرمول ----------
+    # ---------- Seed vars ----------
     seed_vars: Dict[str, Any] = {}
     for f, v in FIELD_TO_VAR.items():
         if f in cd:
@@ -801,37 +993,30 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     context["a6"] = a6_str
     obj.A6_sheet_code = seed_vars["A6"]
 
-    # پارامترهای ثابت از تنظیمات
-    seed_vars["I41"] = as_num(bs.profit_rate_percent, 0.0)
-    seed_vars["J43"] = as_num(bs.interface_cost, 0.0)
-    seed_vars["H43"] = as_num(bs.pallet_cost, 0.0)
-    seed_vars["E43"] = as_num(bs.shipping_cost, 0.0)
-    seed_vars["M30"] = as_num(bs.overhead_per_meter, 0.0)
+    # پر کردن مستقیم سلول‌ها و قیمت‌ها از تنظیمات
+    fill_vars_from_settings(bs, settlement, seed_vars, cd)
 
-    # قیمت ورق پیش‌فرض برای فرمول‌ها
-    seed_vars["sheet_price"] = float(bs.sheet_price_credit or 0) if settlement == "credit" else float(bs.sheet_price_cash or 0)
+    # کپی برخی ثابت‌ها به آبجکت
+    obj.I41_profit_rate = Decimal(str(seed_vars["I41"]))
+    obj.E43_shipping    = Decimal(str(seed_vars["E43"]))
+    obj.H43_pallet      = Decimal(str(seed_vars["H43"]))
+    obj.J43_interface   = Decimal(str(seed_vars["J43"]))
 
-    # برای ثبت در شیء
-    obj.I41_profit_rate = Decimal(bs.profit_rate_percent or 0)
-    obj.E43_shipping    = Decimal(bs.shipping_cost or 0)
-    obj.H43_pallet      = Decimal(bs.pallet_cost or 0)
-    obj.J43_interface   = Decimal(bs.interface_cost or 0)
-
-    # ---------- بارگذاری فرمول‌ها ----------
+    # ---------- فرمول‌ها ----------
     formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormula.objects.all()}
     token_re = re.compile(r"\b([A-Z]+[0-9]+)\b")
-
-    # اگر توکنِ موردنیاز فرمول در seed نبود ولی فیلد فرم دارد، مقدارش را پر کن
     for token in {t for e in formulas_raw.values() for t in token_re.findall(e or "")}:
         if token not in seed_vars and token in VAR_TO_FIELD:
             seed_vars[token] = as_num(cd.get(VAR_TO_FIELD[token]), 0.0)
-
-    # پیش‌فرض برای متغیرهایی که ممکن است قبل از حل فرمول‌ها نیاز باشند
     for k in ("E17", "I17", "F24", "sheet_width", "M24"):
         seed_vars.setdefault(k, 0.0)
 
     resolve, var, formulas_py = build_resolver(formulas_raw, seed_vars)
     var.update(seed_vars)
+
+    # دوباره تنظیمات را داخل var هم می‌ریزیم تا حتماً override شود
+    fill_vars_from_settings(bs, settlement, var, cd)
+
     context["debug_formulas"] = {k: render_formula(expr, seed_vars) for k, expr in formulas_py.items()}
 
     def safe_resolve(key: str):
@@ -843,10 +1028,9 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             DBG(f"[EVAL:{key}] {ex}")
             return None
 
-    # ---------- تثبیت E17 → I17 → K15 ----------
+    # تثبیت E17 → I17 → K15
     tail = seed_vars["A6"] % 100 if seed_vars["A6"] else 0
     g15 = float(seed_vars.get("G15", 0.0))
-
     if tail in (11, 12):
         e17_manual = as_num_or_none(cd.get("E17_lip"))
         if not e17_manual:
@@ -868,7 +1052,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     var["I17"] = as_num(safe_resolve("I17"), 0.0) if "I17" in formulas_py else var.get("I17", 0.0)
     var["K15"] = as_num(safe_resolve("K15"), 0.0) if "K15" in formulas_py else var.get("K15", 0.0)
 
-    # چند پاس برای پایدار شدن شبکهٔ فرمول‌ها
+    # چند پاس برای پایدارسازی
     for _ in range(5):
         changed = False
         for key in formulas_py.keys():
@@ -889,7 +1073,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         obj.K20_industrial_wid = q2(var["K20"], "0.01")
 
         required_w = var["K20"]
-        fixed_widths = [80, 90, 100, 110, 120, 125, 140]
+        fixed_widths = bs.fixed_widths or [80, 90, 100, 110, 120, 125, 140]
 
         k15_val = float(var.get("K15", 0.0))
         context["best_by_width"] = best_for_each_width(k15_val, fixed_widths)
@@ -903,7 +1087,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         if picked and any(abs(picked - w) < 1e-6 for w in fixed_widths):
             chosen_row = next((r for r in context["best_by_width"] if abs(r["sheet_width"] - picked) < 1e-6), None)
             chosen_w = picked
-            var["M24"] = float(chosen_w)  # M24 = عرض انتخابی
+            var["M24"] = float(chosen_w)
 
             if chosen_row:
                 obj.F24_per_sheet_count = int(chosen_row["f24"])
@@ -935,26 +1119,31 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
 
         var["sheet_width"] = float(obj.chosen_sheet_width)
 
-        # ---------- محاسبهٔ نهایی خروجی‌ها ----------
-        compute_keys = ["E28", "E38", "I38", "E41", "E40", "M40", "M41", "H46", "J48", "E48", "M31", "M33"]
-        for key in compute_keys:
-            val = as_num(safe_resolve(key), 0.0)
-            var[key] = val
+        # ---------- خروجی‌های محاسباتی ----------
+        # توجه: M31 و M33 را resolve نمی‌کنیم (مقادیر مستقیم از تنظیمات هستند)
+        for key in ["E28", "E38", "I38", "E41", "E40", "M40", "M41", "H46", "J48", "E48"]:
+            var[key] = as_num(safe_resolve(key), 0.0)
 
-        # تعیین Fee_amount بر اساس نوع تسویه (نقد=M31، مدت‌دار=M33)
-        m31 = as_num(var.get("M31"), 0.0)  # فی ورق نقد
-        m33 = as_num(var.get("M33"), 0.0)  # فی ورق مدت‌دار
-        var["Fee_amount"] = m31 if settlement == "cash" else m33
+        # ---------- تعیین Fee_amount ----------
+        base_fee = var["sheet_price"]  # از fill_vars_from_settings
+        if base_fee <= 0:
+            base_fee = _get_latest_fee_amount(
+                settlement=settlement,
+                fallback_cash=float(bs.sheet_price_cash or 0),
+                fallback_credit=float(bs.sheet_price_credit or 0),
+            )
+        var["Fee_amount"] = float(base_fee)
         context["settlement"] = settlement
-        context["fee_amount"] = var["Fee_amount"]
+        context["fee_amount"] = float(base_fee)
+        context["credit_days"] = credit_days
 
-        # ذخیره در شیء (اگر فیلد مدل دارید؛ اگر ندارید harmless است)
+        # اگر فیلدی برای Fee در مدل داری، این‌جا ست کن (try/except بی‌خطر)
         try:
             setattr(obj, "Fee_amount", Decimal(str(var["Fee_amount"])))
         except Exception:
             pass
 
-        # نگاشت به فیلدهای مدل
+        # نگاشت خروجی‌ها به مدل
         obj.E28_carton_consumption = q2(var["E28"], "0.0001")
         obj.E38_sheet_area_m2      = q2(var["E38"], "0.0001")
         obj.I38_sheet_count        = int(math.ceil(var["I38"] or 0.0))
@@ -966,14 +1155,12 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         obj.J48_tax                = q2(var["J48"], "0.01")
         obj.E48_price_with_tax     = q2(var["E48"], "0.01")
 
-        context["credit_days"] = credit_days
-
     except Exception as e:
         context["errors"] = {"__all__": [str(e)]}
         context["vars"] = locals().get("var", {})
         return render(request, "carton_pricing/price_form.html", context)
 
-    # ---------- ذخیره در صورت تیک «ذخیره برگه» ----------
+    # ---------- ذخیره در صورت درخواست ----------
     if form.cleaned_data.get("save_record"):
         with transaction.atomic():
             obj.save()
@@ -981,3 +1168,52 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
 
     context.update({"result": obj, "vars": var})
     return render(request, "carton_pricing/price_form.html", context)
+
+# carton_pricing/views_paper.py
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.core.paginator import Paginator
+from django.db.models import Q
+
+from .models import Paper
+from .forms import PaperForm
+
+def paper_list_view(request):
+    q = (request.GET.get("q") or "").strip()
+    qs = Paper.objects.all()
+    if q:
+        qs = qs.filter(Q(name_paper__icontains=q))
+    qs = qs.order_by("name_paper")
+
+    paginator = Paginator(qs, 20)
+    page = request.GET.get("page")
+    page_obj = paginator.get_page(page)
+
+    return render(request, "carton_pricing/paper_list.html", {
+        "page_obj": page_obj,
+        "q": q,
+    })
+
+def paper_create_view(request):
+    if request.method == "POST":
+        form = PaperForm(request.POST)
+        if form.is_valid():
+            obj = form.save()
+            messages.success(request, f"کاغذ «{obj.name_paper}» با موفقیت ثبت شد.")
+            return redirect(reverse("carton_pricing:paper_list"))
+    else:
+        form = PaperForm()
+    return render(request, "carton_pricing/paper_form.html", {"form": form, "mode": "create"})
+
+def paper_update_view(request, pk: int):
+    obj = get_object_or_404(Paper, pk=pk)
+    if request.method == "POST":
+        form = PaperForm(request.POST, instance=obj)
+        if form.is_valid():
+            obj = form.save()
+            messages.success(request, f"کاغذ «{obj.name_paper}» به‌روزرسانی شد.")
+            return redirect(reverse("carton_pricing:paper_list"))
+    else:
+        form = PaperForm(instance=obj)
+    return render(request, "carton_pricing/paper_form.html", {"form": form, "mode": "edit", "obj": obj})

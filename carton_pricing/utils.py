@@ -538,3 +538,67 @@ def compute_sheet_options(required_width_cm: float,
     # مرتب‌سازی: عرض نزولی، بعد دورریز صعودی
     opts.sort(key=lambda o: (-o['width'], o['waste']))
     return opts[:max_options]
+# carton_pricing/utils.py
+import json, re
+from typing import Any, Iterable, List
+
+# ارقام و جداکننده‌های فارسی/عربی → لاتین
+_PERSIAN_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٬،٫", "01234567890123456789,,.")
+
+def _normalize_fixed_widths(
+    value: Any,
+    *,
+    dedupe: bool = True,
+    sort_result: bool = True,
+    min_value: float = 1.0,
+    precision: int = 0,
+) -> List[float]:
+    """
+    ورودی‌های قابل قبول برای fixed_widths:
+      - list/tuple/set از اعداد یا رشته‌ها
+      - رشته JSON شبیه "[80, 90, 100]"
+      - رشته CSV/space مثل "80,90,100" یا "80 90 100"
+      - شامل ارقام فارسی هم باشد اوکی است
+    خروجی: لیست اعداد مثبت (unique & sorted).
+    """
+    if value is None or value == "":
+        return []
+
+    # اگر iterable باشد
+    if isinstance(value, (list, tuple, set)):
+        tokens: Iterable[Any] = value
+    else:
+        # به رشته تبدیل و نرمال‌سازی
+        s = str(value).translate(_PERSIAN_MAP).strip()
+        if not s:
+            return []
+        # JSON array؟
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                parsed = json.loads(s)
+                return _normalize_fixed_widths(parsed,
+                                               dedupe=dedupe,
+                                               sort_result=sort_result,
+                                               min_value=min_value,
+                                               precision=precision)
+            except Exception:
+                pass
+        # CSV / فاصله / ; / | / /
+        tokens = (t for t in re.split(r"[,\s;|/]+", s) if t)
+
+    # تبدیل به عدد + فیلتر
+    out: List[float] = []
+    for t in tokens:
+        try:
+            num = float(str(t).translate(_PERSIAN_MAP))
+        except Exception:
+            continue
+        if num >= min_value:
+            out.append(round(num, precision) if precision is not None and precision >= 0 else num)
+
+    if dedupe:
+        seen = set()
+        out = [x for x in out if not (x in seen or seen.add(x))]
+    if sort_result:
+        out.sort()
+    return out

@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="fa" dir="rtl">
 <head>
@@ -14,16 +13,69 @@
   <script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
 </head>
 <body class="bg-light">
+
 <nav class="navbar navbar-expand-lg bg-white border-bottom mb-3">
   <div class="container-fluid">
-    <a class="navbar-brand" href="#">کارتن محمد</a>
-    <div class="navbar-nav">
-      <a class="nav-link" href="/price-form/">فرم قیمت</a>
-      <a class="nav-link" href="/base-settings/">اطلاعات پایه</a>
-      <a class="nav-link" href="/formulas/">فرمول‌ها</a>
+    <a class="navbar-brand" href="{% url 'carton_pricing:price_form' %}">کارتن محمد</a>
+
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div id="topNav" class="collapse navbar-collapse">
+      <ul class="navbar-nav me-auto">
+
+        <!-- فرم قیمت -->
+        <li class="nav-item">
+          <!-- اگر name مسیر نداری، موقتاً href="/price-form/" بگذار -->
+          <a class="nav-link" href="{% url 'carton_pricing:price_form' %}">فرم قیمت</a>
+        </li>
+
+        <!-- اطلاعات پایه -->
+        <li class="nav-item">
+          <!-- اگر name مسیر نداری، موقتاً href="/base-settings/" بگذار -->
+          <a class="nav-link" href="{% url 'carton_pricing:base_settings' %}">اطلاعات پایه</a>
+        </li>
+
+        <!-- فرمول‌ها -->
+        <li class="nav-item">
+          <!-- اگر لیست/مدیریت فرمول‌ها view جدا نداری، از مسیر فعلی‌ات /formulas/ استفاده کن -->
+          <a class="nav-link" href="{% url 'carton_pricing:formula_list' %}">فرمول‌ها</a>
+        </li>
+
+        <!-- تعاریف (Dropdown) -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="defsMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            تعاریف
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="defsMenu">
+            <!-- کاغذها -->
+            <li>
+              <a class="dropdown-item" href="{% url 'carton_pricing:paper_list' %}">کاغذها</a>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{% url 'carton_pricing:paper_create' %}">+ کاغذ جدید</a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <!-- گام فلوت (فعلاً از ادمین) -->
+            <li>
+              <a class="dropdown-item" href="{% url 'admin:carton_pricing_flutestep_changelist' %}">گام فلوت</a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- ادمین (اختیاری) -->
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'admin:index' %}">مدیریت</a>
+        </li>
+
+      </ul>
     </div>
   </div>
 </nav>
+
 <div class="container">{% block content %}{% endblock %}</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

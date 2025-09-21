@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="row">
+  <div class="col-12 col-lg-8 mx-auto">
+    <h3 class="mb-4">
+      {% if mode == "edit" %}ویرایش کاغذ{% else %}تعریف کاغذ جدید{% endif %}
+    </h3>
+
+    {% if messages %}
+      {% for m in messages %}
+        <div class="alert alert-{{ m.tags }}">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <form method="post" class="card p-3 shadow-sm">
+      {% csrf_token %}
+
+      <div class="mb-3">
+        <label class="form-label" for="{{ form.name_paper.id_for_label }}">
+          {{ form.name_paper.label }}
+        </label>
+        {{ form.name_paper }}
+        {% if form.name_paper.help_text %}
+          <div class="form-text">{{ form.name_paper.help_text }}</div>
+        {% endif %}
+        {% for e in form.name_paper.errors %}
+          <div class="text-danger small">{{ e }}</div>
+        {% endfor %}
+      </div>
+
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="submit">ذخیره</button>
+        <a class="btn btn-secondary" href="{% url 'carton_pricing:paper_list' %}">بازگشت</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

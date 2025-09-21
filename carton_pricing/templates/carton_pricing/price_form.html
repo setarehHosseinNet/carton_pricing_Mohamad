@@ -34,8 +34,8 @@
 
 <form method="post" id="priceForm" class="card card-body shadow-sm mb-4" dir="rtl" novalidate>
   {% csrf_token %}
-  <div class="row g-3">
 
+  <div class="row g-3">
     {# ── اطلاعات مشتری ── #}
     <div class="col-md-4">
       <label class="form-label" for="{{ form.customer.id_for_label }}">{{ form.customer.label }}</label>
@@ -62,31 +62,24 @@
     <hr class="my-2"/>
 
     {# ── گزینه‌های چاپ/ابعاد/فنی ── #}
-  {# ... بقیهٔ فرم ... #}
+    <div class="col-12">
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <label class="form-check mb-0">
+          {{ form.has_print_notes_bool }} {{ form.has_print_notes_bool.label }}
+        </label>
 
-<div class="col-12">
-  <div class="d-flex flex-wrap align-items-center gap-3">
-  <div class="form-check mb-0">
-  {{ form.has_print_notes }} {{ form.has_print_notes.label_tag }}
-</div>
-{% for e in form.has_print_notes.errors %}
-  <div class="invalid-feedback d-block">{{ e }}</div>
-{% endfor %}
+        <label class="form-check mb-0">{{ form.dim_customer }} {{ form.dim_customer.label }}</label>
+        <label class="form-check mb-0">{{ form.dim_customer_sample }} {{ form.dim_customer_sample.label }}</label>
+        <label class="form-check mb-0">{{ form.dim_sample }} {{ form.dim_sample.label }}</label>
 
-
-    <label class="form-check mb-0">{{ form.dim_customer }} {{ form.dim_customer.label_tag }}</label>
-    <label class="form-check mb-0">{{ form.dim_customer_sample }} {{ form.dim_customer_sample.label_tag }}</label>
-    <label class="form-check mb-0">{{ form.dim_sample }} {{ form.dim_sample.label_tag }}</label>
-
-    <label class="form-check mb-0">{{ form.tech_new_cliche }} {{ form.tech_new_cliche.label_tag }}</label>
-    <label class="form-check mb-0">{{ form.tech_handle_slot }} {{ form.tech_handle_slot.label_tag }}</label>
-    <label class="form-check mb-0">{{ form.tech_punch }} {{ form.tech_punch.label_tag }}</label>
-    <label class="form-check mb-0">{{ form.tech_pallet }} {{ form.tech_pallet.label_tag }}</label>
-    <label class="form-check mb-0">{{ form.tech_shipping_on_customer }} {{ form.tech_shipping_on_customer.label_tag }}</label>
-  </div>
-  {% for e in form.has_print_notes.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
-</div>
-
+        <label class="form-check mb-0">{{ form.tech_new_cliche }} {{ form.tech_new_cliche.label }}</label>
+        <label class="form-check mb-0">{{ form.tech_handle_slot }} {{ form.tech_handle_slot.label }}</label>
+        <label class="form-check mb-0">{{ form.tech_punch }} {{ form.tech_punch.label }}</label>
+        <label class="form-check mb-0">{{ form.tech_pallet }} {{ form.tech_pallet.label }}</label>
+        <label class="form-check mb-0">{{ form.tech_shipping_on_customer }} {{ form.tech_shipping_on_customer.label }}</label>
+      </div>
+      {% for e in form.has_print_notes_bool.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
 
     {# ── مشخصات/ابعاد پایه ── #}
     <div class="col-md-3">
@@ -159,7 +152,7 @@
       {% for e in form.E17_lip.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# ── سایر پارامترها ── #}
+    {# ── گام فلوت ── #}
     <div class="col-md-3">
       <label class="form-label" for="{{ form.D31_flute.id_for_label }}">{{ form.D31_flute.label }}</label>
       {{ form.D31_flute }}
@@ -199,10 +192,46 @@
       {% for e in form.description.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
+    {# ── ترکیب کاغذ (مستقل از گام فلوت) ── #}
+    <div class="col-12">
+      <div class="card mt-2">
+        <div class="card-header">ترکیب کاغذ</div>
+        <div class="card-body row g-3">
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.pq_glue_machine.id_for_label }}">{{ form.pq_glue_machine.label }}</label>
+            {{ form.pq_glue_machine }}
+            {% for e in form.pq_glue_machine.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.pq_be_flute.id_for_label }}">{{ form.pq_be_flute.label }}</label>
+            {{ form.pq_be_flute }}
+            {% for e in form.pq_be_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.pq_middle_layer.id_for_label }}">{{ form.pq_middle_layer.label }}</label>
+            {{ form.pq_middle_layer }}
+            {% for e in form.pq_middle_layer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.pq_c_flute.id_for_label }}">{{ form.pq_c_flute.label }}</label>
+            {{ form.pq_c_flute }}
+            {% for e in form.pq_c_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="{{ form.pq_bottom_layer.id_for_label }}">{{ form.pq_bottom_layer.label }}</label>
+            {{ form.pq_bottom_layer }}
+            {% for e in form.pq_bottom_layer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# ── ذخیره خودکار ── #}
     <div class="col-12 form-check mt-2">
       {{ form.save_record }} {{ form.save_record.label_tag }}
     </div>
 
+    {# ── دکمه محاسبه + نمایش A6 ── #}
     <div class="col-12">
       <div class="d-flex align-items-center gap-3">
         <strong id="a6_display" class="text-secondary small" aria-live="polite">A6 = —</strong>
@@ -242,9 +271,9 @@
                 <tr>
                   <td>
                     <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
-                      {% if request.POST.sheet_choice %}
-                        {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
-                      {% elif forloop.first %}checked{% endif %}>
+                           {% if request.POST.sheet_choice %}
+                             {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
+                           {% elif forloop.first %}checked{% endif %}>
                   </td>
                   <td>{{ r.sheet_width|floatformat:0 }}</td>
                   <td>{{ r.f24 }}</td>
@@ -285,10 +314,7 @@
         <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax }}</div>
         <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax }}</div>
         <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax }}</div>
-           <div class="col-md-3">
-  <strong>فی ورق (Fee_amount):</strong>
-  {{ fee_amount|floatformat:2 }}
-</div>
+        <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|floatformat:2 }}</div>
       </div>
     </div>
   </div>
@@ -444,7 +470,7 @@
   document.getElementById('settle_cash').addEventListener('change', syncSettlementUI);
   document.getElementById('settle_credit').addEventListener('change', syncSettlementUI);
 
-  // listeners
+  // listeners برای محاسبه A6 / نمایش E17
   ['A1_layers','A2_pieces','A3_door_type','A4_door_count'].forEach(name=>{
     const el = document.getElementById('id_' + name);
     (el ? [el] : document.querySelectorAll('input[name="'+name+'"]'))
