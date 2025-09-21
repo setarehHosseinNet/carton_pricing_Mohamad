@@ -1,0 +1,4 @@
+black
+isort
+ipython
+django-debug-toolbar
