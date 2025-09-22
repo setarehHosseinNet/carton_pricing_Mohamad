@@ -192,7 +192,92 @@
       {% for e in form.description.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# ── ترکیب کاغذ (مستقل از گام فلوت) ── #}
+    {# ── ⬇️ جابه‌جا شده: «انتخاب عرض ورق» به اینجا آمد (جای «ترکیب کاغذ») ── #}
+    {% if best_by_width %}
+      <div class="col-12">
+        <div class="card mt-2">
+          <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
+          <div class="card-body">
+            <p class="text-muted mb-2">
+              <strong>K15 = {{ result_preview.K15 }}</strong> |
+              <strong>E20 = {{ result_preview.E20 }}</strong> |
+              <strong>K20 = {{ result_preview.K20 }}</strong><br>
+              معیار رنگ: <span class="text-success fw-bold">سبز</span> ⇐ 0 &lt; دورریز &lt; 11 ،
+              <span class="text-danger fw-bold">قرمز</span> ⇐ سایر حالات (شامل 0 و 11).
+            </p>
+
+            <div class="table-responsive">
+              <table class="table table-sm align-middle text-center">
+                <thead>
+                  <tr>
+                    <th>انتخاب</th>
+                    <th>(cm) عرض ورق (M24)</th>
+                    <th>F24 (≤ 30)</th>
+                    <th>(cm) دورریز (I22)</th>
+                    <th>(cm²) مصرف کارتن (E28)</th>
+                  </tr>
+                </thead>
+                <tbody>
+  {% for r in best_by_width %}
+    <tr>
+      <td>
+        <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
+               {% if request.POST.sheet_choice %}
+                 {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
+               {% elif forloop.first %}checked{% endif %}>
+      </td>
+
+      <td>{{ r.sheet_width|floatformat:0 }}</td>
+      <td>{{ r.f24 }}</td>
+
+      {# --- I22: رنگی بر اساس 0 < I22 < 11 --- #}
+      <td class="
+          {% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}
+            text-success fw-bold
+          {% elif r.I22 is not None %}
+            text-danger
+          {% else %}
+            text-muted
+          {% endif %}
+      ">
+        {% if r.I22 is not None %}{{ r.I22|floatformat:2 }}{% else %}—{% endif %}
+      </td>
+
+      {# --- E28: مثل قبل نمایش معمولی --- #}
+      <td>
+        {% if r.E28 is not None %}{{ r.E28|floatformat:4 }}{% else %}—{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+</tbody>
+
+
+              </table>
+            </div>
+
+            <button class="btn btn-primary mt-2">محاسبه</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {# ── ذخیره خودکار ── #}
+    <div class="col-12 form-check mt-2">
+      {{ form.save_record }} {{ form.save_record.label_tag }}
+    </div>
+
+    {# ── دکمه محاسبه + نمایش A6 ── #}
+    <div class="col-12">
+      <div class="d-flex align-items-center gap-3">
+        <strong id="a6_display" class="text-secondary small" aria-live="polite">A6 = —</strong>
+        <button id="btnSubmit" class="btn btn-primary">
+          <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+          محاسبه
+        </button>
+      </div>
+    </div>
+
+    {# ── ⬇️ جابه‌جا شده: «ترکیب کاغذ» به پایین منتقل شد ── #}
     <div class="col-12">
       <div class="card mt-2">
         <div class="card-header">ترکیب کاغذ</div>
@@ -226,70 +311,8 @@
       </div>
     </div>
 
-    {# ── ذخیره خودکار ── #}
-    <div class="col-12 form-check mt-2">
-      {{ form.save_record }} {{ form.save_record.label_tag }}
-    </div>
+  </div>{# /row #}
 
-    {# ── دکمه محاسبه + نمایش A6 ── #}
-    <div class="col-12">
-      <div class="d-flex align-items-center gap-3">
-        <strong id="a6_display" class="text-secondary small" aria-live="polite">A6 = —</strong>
-        <button id="btnSubmit" class="btn btn-primary">
-          <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-          محاسبه
-        </button>
-      </div>
-    </div>
-  </div>
-
-  {# ── جدول انتخاب عرض ── #}
-  {% if best_by_width %}
-    <div class="card shadow-sm mt-4">
-      <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
-      <div class="card-body">
-        <p class="text-muted mb-2">
-          <strong>K15 = {{ result_preview.K15 }}</strong> |
-          <strong>E20 = {{ result_preview.E20 }}</strong> |
-          <strong>K20 = {{ result_preview.K20 }}</strong><br>
-          معیار رنگ: <span class="text-success fw-bold">سبز</span> ⇐ 0 &lt; دورریز &lt; 11 ،
-          <span class="text-danger fw-bold">قرمز</span> ⇐ سایر حالات (شامل 0 و 11).
-        </p>
-        <div class="table-responsive">
-          <table class="table table-sm align-middle text-center">
-            <thead>
-              <tr>
-                <th>انتخاب</th>
-                <th>(cm) عرض ورق</th>
-                <th>F24 (≤ 30)</th>
-                <th>(cm) نیاز = F × K15</th>
-                <th>(cm) دورریز</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in best_by_width %}
-                <tr>
-                  <td>
-                    <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
-                           {% if request.POST.sheet_choice %}
-                             {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
-                           {% elif forloop.first %}checked{% endif %}>
-                  </td>
-                  <td>{{ r.sheet_width|floatformat:0 }}</td>
-                  <td>{{ r.f24 }}</td>
-                  <td>{% if r.need is not None %}{{ r.need|floatformat:2 }}{% else %}—{% endif %}</td>
-                  <td class="{% if r.waste is not None and r.waste > 0 and r.waste < 11 %}text-success fw-bold{% else %}text-danger{% endif %}">
-                    {% if r.waste is not None %}{{ r.waste|floatformat:2 }}{% else %}—{% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        <button class="btn btn-primary mt-2">محاسبه</button>
-      </div>
-    </div>
-  {% endif %}
 </form>
 
 {# ── نتایج ── #}

@@ -436,69 +436,7 @@ def _parse_fixed_widths_from_settings(raw_fw) -> list[float]:
     widths = [float(n) for n in nums if as_num(n, 0.0) > 0]
     return sorted(set(widths))
 
-def best_for_each_width(
-    k15: float,
-    widths: Iterable[float],
-    fmax: int = 30,
-    *,
-    waste_min: float = 0.0,   # سبز وقتی 0<waste<11
-    waste_max: float = 11.0,
-    sort_widths: bool = True,
-) -> List[Dict]:
-    """
-    برای هر عرضِ ثابت w، بزرگ‌ترین F (<= fmax) را پیدا می‌کند که F*k15 <= w باشد.
-    خروجی برای هر w: dict با کلیدهای sheet_width, f24, need, waste, ok
-    """
-    try:
-        k15_val = float(k15)
-    except Exception:
-        k15_val = 0.0
 
-    clean_widths: List[float] = []
-    for w in widths or []:
-        try:
-            v = float(w)
-            if v > 0:
-                clean_widths.append(v)
-        except Exception:
-            continue
-    if sort_widths:
-        clean_widths.sort()
-
-    rows: List[Dict] = []
-    if k15_val <= 0 or not clean_widths:
-        for w in clean_widths:
-            rows.append({"sheet_width": float(w), "f24": 0, "need": None, "waste": None, "ok": False})
-        return rows
-
-    for w in clean_widths:
-        best_f: Optional[int] = None
-        best_need: Optional[float] = None
-        best_waste: Optional[float] = None
-
-        for f in range(int(fmax), 0, -1):
-            need = f * k15_val
-            if need <= w + 1e-9:
-                best_f = f
-                best_need = need
-                best_waste = w - need
-                break
-
-        if best_f is None:
-            rows.append({"sheet_width": float(w), "f24": 0, "need": None, "waste": None, "ok": False})
-            continue
-
-        waste = float(best_waste or 0.0)
-        ok = (waste > waste_min) and (waste < waste_max)
-
-        rows.append({
-            "sheet_width": float(w),
-            "f24": int(best_f),
-            "need": round(float(best_need or 0.0), 2),
-            "waste": round(waste, 2),
-            "ok": ok,
-        })
-    return rows
 # ───────────────────────── end helpers ─────────────────────────
 # ─── HARD WIRED SHEET WIDTHS ───────────────────────────────────────────
 HARD_FIXED_WIDTHS: list[float] = [80, 90, 100, 110, 120, 125, 140]
@@ -521,653 +459,417 @@ def _normalize_num_text(x: Any) -> str:
     s = s.replace(",", "")
     return s
 
-# ───────────────────────── the view ─────────────────────────
-# ───────────────────────── the view ─────────────────────────
-# def price_form_view(request: HttpRequest) -> HttpResponse:
-#     """
-#     فرم قیمت: محاسبهٔ فرمول‌ها + پیشنهاد/انتخاب عرض ورق
-#     """
-#
-#     # ── Helpers ─────────────────────────────────────────
-#     def as_num_or_none(x: Any) -> float | None:
-#         if x is None:
-#             return None
-#         if isinstance(x, (int, float, Decimal)):
-#             return float(x)
-#         s = _normalize_num_text(x)
-#         if s in ("", "*"):
-#             return None
-#         try:
-#             return float(s)
-#         except Exception:
-#             return None
-#
-#     def as_num(x: Any, default: float = 0.0) -> float:
-#         v = as_num_or_none(x)
-#         return default if v is None else v
-#
-#     def best_for_each_width(k15: float, widths: list[float], fmax: int = 30) -> list[dict]:
-#         """
-#         برای هر عرضِ w، بزرگ‌ترین F<=fmax که F*k15 <= w باشد را می‌یابد.
-#         خروجی: [{sheet_width, f24, need, waste, ok}]
-#         """
-#         ws = sorted({float(w) for w in widths if w and float(w) > 0})
-#         try:
-#             k15v = float(k15)
-#         except Exception:
-#             k15v = 0.0
-#
-#         rows: list[dict] = []
-#         if k15v <= 0:
-#             for w in ws:
-#                 rows.append({"sheet_width": w, "f24": 0, "need": None, "waste": None, "ok": False})
-#             return rows
-#
-#         for w in ws:
-#             best_f = None; best_need = None; best_waste = None
-#             for f in range(int(fmax), 0, -1):
-#                 need = f * k15v
-#                 if need <= w + 1e-9:
-#                     best_f, best_need, best_waste = f, need, w - need
-#                     break
-#             if best_f is None:
-#                 rows.append({"sheet_width": w, "f24": 0, "need": None, "waste": None, "ok": False})
-#             else:
-#                 waste = float(best_waste or 0.0)
-#                 rows.append({
-#                     "sheet_width": w,
-#                     "f24": int(best_f),
-#                     "need": round(float(best_need or 0.0), 2),
-#                     "waste": round(waste, 2),
-#                     "ok": (0.0 < waste < 11.0),
-#                 })
-#         return rows
-#
-#     # ── Mapping fields ↔ variables ─────────────────────
-#     FIELD_TO_VAR: Dict[str, str] = {
-#         "E15_len": "E15",
-#         "G15_wid": "G15",
-#         "I15_hgt": "I15",
-#         "I8_qty":  "I8",
-#         "E17_lip": "E17",             # فقط fallback
-#         "E46_round_adjust": "E46",
-#         "A1_layers": "A1",
-#         "A2_pieces": "A2",
-#         "A3_door_type": "A3",
-#         "A4_door_count": "A4",
-#     }
-#     VAR_TO_FIELD = {v: k for k, v in FIELD_TO_VAR.items()}
-#
-#     # ── Settings & context ─────────────────────────────
-#     bs: BaseSettings = ensure_settings_model(get_settings_external())
-#     context: Dict[str, Any] = {"settings": bs}
-#
-#     # ── GET ────────────────────────────────────────────
-#     if request.method != "POST":
-#         form = PriceForm(initial={
-#             "A1_layers": 1, "A2_pieces": 1, "A3_door_type": 1, "A4_door_count": 1,
-#             "payment_type": "cash",
-#         })
-#         form.fields["E17_lip"].required = False
-#         context["form"] = form
-#         return render(request, "carton_pricing/price_form.html", context)
-#
-#     # ── POST ───────────────────────────────────────────
-#     form = PriceForm(request.POST)
-#     form.fields["E17_lip"].required = False
-#     context["form"] = form
-#     if not form.is_valid():
-#         context["errors"] = form.errors
-#         return render(request, "carton_pricing/price_form.html", context)
-#
-#     obj: PriceQuotation = form.save(commit=False)
-#     cd = form.cleaned_data
-#
-#     # ── Seed vars از فرم/ستینگ ─────────────────────────
-#     seed_vars: Dict[str, Any] = {}
-#     for field, varname in FIELD_TO_VAR.items():
-#         if field in cd:
-#             seed_vars[varname] = as_num(cd.get(field), 0.0)
-#
-#     seed_vars["A1"] = int(cd.get("A1_layers") or 0)
-#     seed_vars["A2"] = int(cd.get("A2_pieces") or 0)
-#     seed_vars["A3"] = int(cd.get("A3_door_type") or 0)
-#     seed_vars["A4"] = int(cd.get("A4_door_count") or 0)
-#     a6_str = f"{seed_vars['A1']}{seed_vars['A2']}{seed_vars['A3']}{seed_vars['A4']}"
-#     seed_vars["A6"] = int(a6_str) if a6_str.isdigit() else 0
-#     context["a6"] = a6_str
-#     obj.A6_sheet_code = seed_vars["A6"]
-#
-#     seed_vars["I41"] = as_num(bs.profit_rate_percent, 0.0)
-#     seed_vars["J43"] = as_num(bs.interface_cost, 0.0)
-#     seed_vars["H43"] = as_num(bs.pallet_cost, 0.0)
-#     seed_vars["E43"] = as_num(bs.shipping_cost, 0.0)
-#     seed_vars["M30"] = as_num(bs.overhead_per_meter, 0.0)
-#     seed_vars["sheet_price"] = float(
-#         bs.sheet_price_cash if cd.get("payment_type") == "cash" else bs.sheet_price_credit
-#     )
-#     obj.I41_profit_rate = Decimal(bs.profit_rate_percent or 0)
-#     obj.E43_shipping    = Decimal(bs.shipping_cost or 0)
-#     obj.H43_pallet      = Decimal(bs.pallet_cost or 0)
-#     obj.J43_interface   = Decimal(bs.interface_cost or 0)
-#
-#     # ── ساخت Resolver ─────────────────────────────────
-#     formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormula.objects.all()}
-#     token_re = re.compile(r"\b([A-Z]+[0-9]+)\b")
-#     for token in {t for expr in formulas_raw.values() for t in token_re.findall(expr or "")}:
-#         if token not in seed_vars and token in VAR_TO_FIELD:
-#             seed_vars[token] = as_num(cd.get(VAR_TO_FIELD[token]), 0.0)
-#
-#     for k in ("E17", "I17", "F24", "sheet_width", "M24"):
-#         seed_vars.setdefault(k, 0.0)
-#
-#     resolve, var, formulas_py = build_resolver(formulas_raw, seed_vars)
-#     var.update(seed_vars)
-#     context["debug_formulas"] = {k: render_formula(expr, seed_vars) for k, expr in formulas_py.items()}
-#
-#     def safe_resolve(key: str):
-#         if key not in formulas_py:
-#             return None
-#         try:
-#             return resolve(key)
-#         except Exception as ex:
-#             DBG(f"[EVAL:{key}] error={ex}")
-#             return None
-#
-#     # ── تثبیت E17 → I17 → K15 ─────────────────────────
-#     tail = seed_vars["A6"] % 100 if seed_vars["A6"] else 0
-#     g15  = float(seed_vars.get("G15", 0.0))
-#
-#     if tail in (11, 12):
-#         e17_manual = as_num_or_none(cd.get("E17_lip"))
-#         if not e17_manual:
-#             form.add_error("E17_lip", "این فیلد برای حالت‌های انتهایی 11 یا 12 در A6 الزامی است.")
-#             context["errors"] = form.errors
-#             return render(request, "carton_pricing/price_form.html", context)
-#         var["E17"] = float(e17_manual)
-#     else:
-#         num_e17 = as_num_or_none(safe_resolve("E17"))
-#         if num_e17:
-#             var["E17"] = float(num_e17)
-#         elif g15 > 0 and tail in (21, 22):
-#             var["E17"] = g15 / 2.0
-#         elif g15 > 0 and tail in (31, 32):
-#             var["E17"] = g15
-#         else:
-#             var["E17"] = as_num(cd.get("E17_lip"), 0.0)
-#
-#     seed_vars["E17"] = float(var["E17"])
-#     var.update(seed_vars)
-#     if "I17" in formulas_py:
-#         var["I17"] = as_num(safe_resolve("I17"), 0.0)
-#     if "K15" in formulas_py:
-#         var["K15"] = as_num(safe_resolve("K15"), 0.0)
-#
-#     # ارزیابی چندمرحله‌ای
-#     for _ in range(5):
-#         changed = False
-#         for key in formulas_py.keys():
-#             if key in ("E17", "K15"):
-#                 continue
-#             num = as_num_or_none(safe_resolve(key))
-#             if num is not None and abs(var.get(key, 0.0) - num) > 1e-9:
-#                 var[key] = num
-#                 changed = True
-#         if not changed:
-#             break
-#
-#     # ── پیشنهاد/انتخاب عرض ورق ─────────────────────────
-#     try:
-#         var["E20"] = as_num(var.get("E20") or safe_resolve("E20"), 0.0)
-#         var["K20"] = as_num(var.get("K20") or safe_resolve("K20"), 0.0)
-#         obj.E20_industrial_len = q2(var["E20"], "0.01")
-#         obj.K20_industrial_wid = q2(var["K20"], "0.01")
-#
-#         required_w = var["K20"]
-#         fixed_widths_all = [80, 90, 100, 110, 120, 125, 140]
-#
-#         k15_val = float(var.get("K15", 0.0))
-#         context["best_by_width"] = best_for_each_width(k15_val, fixed_widths_all)
-#         context["result_preview"] = {
-#             "E20": q2(var["E20"], "0.01"),
-#             "K20": q2(required_w, "0.01"),
-#             "K15": q2(k15_val, "0.01"),
-#         }
-#
-#         picked = as_num(request.POST.get("sheet_choice"), 0.0)
-#         if picked and any(abs(picked - w) < 1e-6 for w in fixed_widths_all):
-#             # ردیف انتخابی کاربر از جدول best_by_width
-#             chosen_row = next((r for r in context["best_by_width"]
-#                                if abs(r["sheet_width"] - picked) < 1e-6), None)
-#
-#             chosen_w = picked
-#             var["M24"] = float(chosen_w)              # ← M24 = عرض انتخابی
-#
-#             if chosen_row:
-#                 # ← F24 را دقیقاً از ستون جدول بگیر
-#                 obj.F24_per_sheet_count = int(chosen_row["f24"])
-#                 var["F24"] = float(chosen_row["f24"])  # ← F24 = مقدار ستون F24 (≤30)
-#
-#                 waste_txt = "—" if chosen_row["waste"] is None else f"{chosen_row['waste']:.2f}cm"
-#                 need_txt  = "—" if chosen_row["need"]  is None else f"{chosen_row['need']:.2f}cm"
-#                 context["chosen_summary"] = (
-#                     f"عرض ورق انتخابی: {int(round(chosen_row['sheet_width']))}cm | "
-#                     f"F24: {chosen_row['f24']} | نیاز = F×K15: {need_txt} | دورریز: {waste_txt}"
-#                 )
-#                 obj.waste_warning = (chosen_row["waste"] is not None and chosen_row["waste"] >= 11.0)
-#                 obj.note_message = ""
-#             else:
-#                 # اگر به هر دلیل ردیف پیدا نشد، به الگوریتم fallback برگرد
-#                 count, chosen_w, waste, warn, note = choose_per_sheet_and_width(
-#                     required_width_cm=required_w,
-#                     fixed_widths=fixed_widths_all,
-#                     max_waste_cm=11.0,
-#                     e20_len_cm=var["E20"],
-#                 )
-#                 obj.F24_per_sheet_count = max(1, int(count))
-#                 var["F24"] = float(obj.F24_per_sheet_count)
-#                 obj.waste_warning = bool(warn)
-#                 obj.note_message = note
-#
-#             obj.chosen_sheet_width = q2(chosen_w, "0.01")
-#
-#         else:
-#             # انتخاب نشده → بهترین حالت خودکار
-#             count, chosen_w, waste, warn, note = choose_per_sheet_and_width(
-#                 required_width_cm=required_w,
-#                 fixed_widths=fixed_widths_all,
-#                 max_waste_cm=11.0,
-#                 e20_len_cm=var["E20"],
-#             )
-#             obj.F24_per_sheet_count = max(1, int(count))
-#             obj.chosen_sheet_width  = q2(chosen_w, "0.01")
-#             obj.waste_warning       = bool(warn)
-#             obj.note_message        = note
-#             var["M24"] = float(chosen_w)              # ← M24
-#             var["F24"] = float(obj.F24_per_sheet_count)  # ← F24
-#
-#         var["sheet_width"] = float(obj.chosen_sheet_width)
-#
-#         # ── خروجی‌های نهایی فرمول‌ها ─────────────────────
-#         for key in ["E28","E38","I38","E41","E40","M40","M41","H46","J48","E48"]:
-#             var[key] = as_num(safe_resolve(key), 0.0)
-#
-#         # نگاشت به مدل
-#         obj.E28_carton_consumption = q2(var["E28"], "0.0001")
-#         obj.E38_sheet_area_m2      = q2(var["E38"], "0.0001")
-#         obj.I38_sheet_count        = int(math.ceil(var["I38"] or 0.0))
-#         obj.E41_sheet_working_cost = q2(var["E41"], "0.01")
-#         obj.E40_overhead_cost      = q2(var["E40"], "0.01")
-#         obj.M40_total_cost         = q2(var["M40"], "0.01")
-#         obj.M41_profit_amount      = q2(var["M41"], "0.01")
-#         obj.H46_price_before_tax   = q2(var["H46"], "0.01")
-#         obj.J48_tax                = q2(var["J48"], "0.01")
-#         obj.E48_price_with_tax     = q2(var["E48"], "0.01")
-#
-#     except Exception as e:
-#         context["errors"] = {"__all__": [str(e)]}
-#         try:
-#             context["vars"] = var
-#         except Exception:
-#             pass
-#         return render(request, "carton_pricing/price_form.html", context)
-#
-#     # ── Save if requested ──────────────────────────────
-#     if form.cleaned_data.get("save_record"):
-#         with transaction.atomic():
-#             obj.save()
-#         messages.success(request, "برگه قیمت ذخیره شد.")
-#
-#     context.update({"result": obj, "vars": var})
-#     return render(request, "carton_pricing/price_form.html", context)
+
+def best_for_each_width(k15: float, widths: list[float], e20: float, fmax: int = 30) -> list[dict]:
+    """
+    برای هر عرض w بزرگ‌ترین F<=fmax را می‌یابد که F*k15 <= w.
+    خروجی هر ردیف:
+      - sheet_width → برای ستون «عرض ورق (M24)»
+      - f24         → برای ستون «F24 (≤30)»
+      - I22         → دورریز (cm)
+      - E28         → مصرف کارتن همان ردیف = E20 * (F*k15)  (cm^2)
+      - need        → F*k15 (cm) (نمایشی/دیباگ)
+      - ok          → True اگر 0 < دورریز < 11
+    """
+    ws = sorted({float(w) for w in widths if w and float(w) > 0})
+    try: k15v = float(k15)
+    except Exception: k15v = 0.0
+    try: e20v = float(e20)
+    except Exception: e20v = 0.0
+
+    rows: list[dict] = []
+    if k15v <= 0 or not ws:
+        return [{"sheet_width": w, "f24": 0, "I22": None, "E28": None, "need": None, "ok": False} for w in ws]
+
+    for w in ws:
+        best_f = None
+        for f in range(int(fmax), 0, -1):
+            need = f * k15v
+            if need <= w + 1e-9:
+                waste = w - need               # I22
+                e28   = (e20v or 0.0) * need   # مصرف کارتن همان ردیف
+                rows.append({
+                    "sheet_width": w,
+                    "f24": int(f),
+                    "I22": round(float(waste), 2),
+                    "E28": round(float(e28),   2),
+                    "need": round(float(need), 2),
+                    "ok": (0.0 < float(waste) < 11.0),
+                })
+                best_f = f
+                break
+        if best_f is None:
+            rows.append({"sheet_width": w, "f24": 0, "I22": None, "E28": None, "need": None, "ok": False})
+    return rows
+
+
+
+def _calc_e20_row(env_row: dict, formulas_raw: dict) -> float:
+    """
+    E20 را با همان env ردیف (دارای A6,E15,G15 و...) محاسبه می‌کند.
+    اگر فرمول بانک نبود/خطا داد، fallback امن برمی‌گرداند.
+    """
+    try:
+        r, _e, f = build_resolver(formulas_raw, env_row)
+        if "E20" in f:
+            v = r("E20")
+            v = as_num_or_none(v)
+            if v is not None:
+                return float(v)
+    except Exception:
+        pass
+
+    # --- fallback: بر اساس مقادیر فرم ---
+    A6  = int(as_num(env_row.get("A6"), 0))
+    E15 = as_num(env_row.get("E15"), 0.0)
+    G15 = as_num(env_row.get("G15"), 0.0)
+    if E15 == 0 and G15 == 0:
+        return 0.0
+    if A6 == 2211:
+        return E15 + G15 + 3.5
+    return (E15 + G15) * 2 + 3.5
+
+
+def _calc_e28_row(env_row: dict, formulas_raw: dict) -> float:
+    """
+    E28 را با env ردیف محاسبه می‌کند؛ اگر فرمول بانک نبود/خطا داد،
+    از E20_row*M24/F24/10000 استفاده می‌شود.
+    """
+    try:
+        r, _e, f = build_resolver(formulas_raw, env_row)
+        if "E28" in f:
+            v = r("E28")
+            v = as_num_or_none(v)
+            if v is not None:
+                return float(v)
+    except Exception:
+        pass
+
+    e20 = _calc_e20_row(env_row, formulas_raw)
+    F24 = as_num(env_row.get("F24"), 0.0)
+    M24 = as_num(env_row.get("M24"), 0.0)
+    if e20 and F24:
+        return (e20 * M24) / F24 / 10000.0
+    return 0.0
+
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
-    فرم قیمت: محاسبه فرمول‌ها + پیشنهاد/انتخاب عرض ورق
-    تعیین Fee_amount:
-      - مستقیم از BaseSettings (M31 برای نقد، M33 برای مدت)
-      - اگر صفر بود ⇒ fallback از آخرین BaseSettings غیرصفر
+    مرحله‌ای:
+      s1   : دریافت A1..A4 و E15,G15,I15 ⇒ ساخت جدول (انتخاب | M24 | F24 | I22 | E28)
+      final: بعد از انتخاب ردیف و ترکیب کاغذ ⇒ محاسبات نهایی با CalcFormula
     """
-    # ---------- Helpers ----------
+    # ───────── helpers ─────────
+    PERSIAN_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٬٫،", "0123456789,.,")
     def _norm_num(x: Any) -> str:
         s = "" if x is None else str(x)
-        return s.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٬٫،", "0123456789,.,")).replace(",", "")
-
+        return s.translate(PERSIAN_MAP).replace(",", "")
     def as_num_or_none(x: Any) -> float | None:
-        if x is None:
-            return None
-        if isinstance(x, (int, float, Decimal)):
-            return float(x)
-        s = _norm_num(x).strip()
-        if s in ("", "*"):
-            return None
         try:
+            if x is None: return None
+            if isinstance(x, (int, float, Decimal)): return float(x)
+            s = _norm_num(x).strip()
+            if s in ("", "*"): return None
             return float(s)
         except Exception:
             return None
-
     def as_num(x: Any, default: float = 0.0) -> float:
         v = as_num_or_none(x)
         return default if v is None else v
+    def q2(val: float | Decimal, places: str) -> Decimal:
+        return Decimal(val).quantize(Decimal(places), rounding=ROUND_HALF_UP)
 
-    def best_for_each_width(k15: float, widths: list[float], fmax: int = 30) -> list[dict]:
-        ws = sorted({float(w) for w in widths if w and float(w) > 0})
+    # ───────── per-row calculators (fix: pop E20/E28 from env before resolving) ─────────
+    def _calc_e20_row(env_row: dict, formulas_raw: dict) -> float:
+        """E20 مخصوص همان ردیف؛ اگر فرمول نبود/خطا ⇒ fallback امن."""
+        env_local = dict(env_row)
+        env_local.pop("E20", None)   # مهم: از پیش‌نویسی جلوگیری شود تا فرمول اجرا شود
         try:
-            k15v = float(k15)
+            r, _e, f = build_resolver(formulas_raw, env_local)
+            if "E20" in f:
+                v = as_num_or_none(r("E20"))
+                if v is not None:
+                    return float(v)
         except Exception:
-            k15v = 0.0
+            pass
+        # fallback
+        A6  = int(as_num(env_local.get("A6"), 0))
+        E15 = as_num(env_local.get("E15"), 0.0)
+        G15 = as_num(env_local.get("G15"), 0.0)
+        if E15 == 0 and G15 == 0: return 0.0
+        if A6 == 2211:            return E15 + G15 + 3.5
+        return (E15 + G15) * 2 + 3.5
 
-        out: list[dict] = []
-        if k15v <= 0:
-            for w in ws:
-                out.append({"sheet_width": w, "f24": 0, "need": None, "waste": None, "ok": False})
-            return out
+    def _calc_e28_row(env_row: dict, formulas_raw: dict) -> float:
+        """E28 همان ردیف؛ اگر فرمول نبود ⇒ E20_row*M24/F24/10000"""
+        env_local = dict(env_row)
+        # اول E20 ردیف را تضمین کن
+        e20_row = _calc_e20_row(env_local, formulas_raw)
+        env_local["E20"] = e20_row
+        env_local.pop("E28", None)   # مهم: اجازه بده فرمول E28 اجرا شود
+        try:
+            r, _e, f = build_resolver(formulas_raw, env_local)
+            if "E28" in f:
+                v = as_num_or_none(r("E28"))
+                if v is not None:
+                    return float(v)
+        except Exception:
+            pass
+        F24 = as_num(env_local.get("F24"), 0.0)
+        M24 = as_num(env_local.get("M24"), 0.0)
+        return (e20_row * M24 / F24 / 10000.0) if (e20_row and F24) else 0.0
 
-        for w in ws:
-            best_f = None
-            need = waste = None
-            for f in range(int(fmax), 0, -1):
-                need_f = f * k15v
-                if need_f <= w + 1e-9:
-                    best_f, need, waste = f, need_f, w - need_f
-                    break
-            out.append({
-                "sheet_width": w,
-                "f24": int(best_f or 0),
-                "need": None if best_f is None else round(float(need), 2),
-                "waste": None if best_f is None else round(float(waste), 2),
-                "ok": (best_f is not None and 0.0 < float(waste) < 11.0),
-            })
-        return out
+    # ───────── settings ─────────
+    bs = BaseSettings.objects.order_by("-id").first() or BaseSettings.objects.create()
+    ctx: Dict[str, Any] = {"settings": bs}
 
-    # --- گرفتن آخرین فی معتبر از BaseSettings (fallback) ---
-    def _get_latest_fee_amount(settlement: str, *, fallback_cash: float = 0.0, fallback_credit: float = 0.0) -> float:
-        qs = BaseSettings.objects.all()
-        fns = {f.name for f in BaseSettings._meta.fields}
-        if "updated_at" in fns:
-            qs = qs.order_by("-updated_at", "-id")
-        elif "created_at" in fns:
-            qs = qs.order_by("-created_at", "-id")
-        else:
-            qs = qs.order_by("-id")
-
-        for row in qs:
-            v = row.sheet_price_credit if settlement == "credit" else row.sheet_price_cash
-            try:
-                v = float(v or 0)
-            except Exception:
-                v = float(Decimal(v or 0))
-            if v > 0:
-                return v
-        return float(fallback_credit if settlement == "credit" else fallback_cash)
-
-    # --- تزریق مستقیم مقادیر تنظیمات به var (M30/M31/M33/I41/E43/H43/J43/E46 + sheet_price/Fee_amount) ---
-    def fill_vars_from_settings(bs: BaseSettings, settlement: str, var: dict, cd: dict | None = None):
-        def _f(x):
-            if x is None:
-                return 0.0
-            try:
-                return float(x)
-            except Exception:
-                return float(Decimal(str(x)) or 0)
-
-        var["M30"] = _f(bs.overhead_per_meter)
-        var["M31"] = _f(bs.sheet_price_cash)
-        var["M33"] = _f(bs.sheet_price_credit)
-        var["I41"] = _f(bs.profit_rate_percent)
-        var["E43"] = _f(bs.shipping_cost)
-        var["H43"] = _f(bs.pallet_cost)
-        var["J43"] = _f(bs.interface_cost)
-
-        # E46: اولویت با فرم، بعد custom_vars["E46"]
-        e46 = None
-        if cd:
-            e46 = cd.get("E46") or cd.get("E46_round_adjust")
-            try:
-                e46 = float(e46)
-            except Exception:
-                e46 = None
-        if e46 is None:
-            try:
-                e46 = float((bs.custom_vars or {}).get("E46", 0))
-            except Exception:
-                e46 = 0.0
-        var["E46"] = 0.0 if e46 is None else e46
-
-        var["sheet_price"] = var["M33"] if settlement == "credit" else var["M31"]
-        var["Fee_amount"]  = var["sheet_price"]
-
-    # --- مپ فرم ↔ توکن‌ها ---
-    FIELD_TO_VAR = {
-        "E15_len": "E15", "G15_wid": "G15", "I15_hgt": "I15",
-        "I8_qty": "I8", "E17_lip": "E17", "E46_round_adjust": "E46",
-        "A1_layers": "A1", "A2_pieces": "A2", "A3_door_type": "A3", "A4_door_count": "A4",
-    }
-    VAR_TO_FIELD = {v: k for k, v in FIELD_TO_VAR.items()}
-
-    # ---------- Load settings (بدون همگام‌سازی خارجی) ----------
-    bs: BaseSettings | None = BaseSettings.objects.order_by("-id").first()
-    if bs is None:
-        bs = BaseSettings.objects.create()
-    context: Dict[str, Any] = {"settings": bs}
-
-    # ---------- GET ----------
+    # ───────── GET ─────────
     if request.method != "POST":
         form = PriceForm(initial={
             "A1_layers": 1, "A2_pieces": 1, "A3_door_type": 1, "A4_door_count": 1,
-            "payment_type": "cash",
-            "has_print_notes": False,
-            "tech_shipping_on_customer": False,
+            "payment_type": "cash", "has_print_notes": False, "tech_shipping_on_customer": False,
         })
         form.fields["E17_lip"].required = False
-        context["form"] = form
-        return render(request, "carton_pricing/price_form.html", context)
+        ctx.update({"form": form, "ui_stage": "s1", "show_table": False, "show_papers": False})
+        return render(request, "carton_pricing/price_form.html", ctx)
 
-    # ---------- POST ----------
-    form = PriceForm(request.POST)
-    form.fields["E17_lip"].required = False
-    context["form"] = form
+    # ───────── POST ─────────
+    stage = (request.POST.get("stage") or "s1").strip().lower()
+    form = PriceForm(request.POST); form.fields["E17_lip"].required = False
+    ctx["form"] = form
     if not form.is_valid():
-        context["errors"] = form.errors
-        return render(request, "carton_pricing/price_form.html", context)
+        ctx["errors"] = form.errors
+        return render(request, "carton_pricing/price_form.html", ctx)
 
+    cd  = form.cleaned_data
     obj: PriceQuotation = form.save(commit=False)
-    cd = form.cleaned_data
 
-    settlement_in = (request.POST.get("settlement") or cd.get("payment_type") or "cash").strip().lower()
-    settlement = "credit" if settlement_in == "credit" else "cash"
+    settlement = ("credit" if (request.POST.get("settlement") or cd.get("payment_type") or "cash").strip().lower()=="credit" else "cash")
     credit_days = int(as_num(request.POST.get("credit_days"), 0))
+    ctx["settlement"], ctx["credit_days"] = settlement, credit_days
 
-    # ---------- Seed vars ----------
-    seed_vars: Dict[str, Any] = {}
-    for f, v in FIELD_TO_VAR.items():
-        if f in cd:
-            seed_vars[v] = as_num(cd.get(f), 0.0)
+    # ───────── seed vars ─────────
+    FIELD_TO_VAR = {
+        "E15_len":"E15","G15_wid":"G15","I15_hgt":"I15","I8_qty":"I8","E17_lip":"E17","E46_round_adjust":"E46",
+        "A1_layers":"A1","A2_pieces":"A2","A3_door_type":"A3","A4_door_count":"A4",
+    }
+    VAR_TO_FIELD = {v:k for k,v in FIELD_TO_VAR.items()}
+    MIN_REQUIRED = ["A1_layers","A2_pieces","A3_door_type","A4_door_count","E15_len","G15_wid","I15_hgt"]
+    if any(as_num(cd.get(f),0)<=0 for f in MIN_REQUIRED):
+        messages.warning(request,"برای ساخت جدول، مقادیر A1,A2,A3,A4 و E15,G15,I15 را کامل وارد کنید.")
+        ctx.update({"ui_stage":"s1","show_table":False,"show_papers":False})
+        return render(request,"carton_pricing/price_form.html",ctx)
 
-    # A6
-    seed_vars["A1"] = int(cd.get("A1_layers") or 0)
-    seed_vars["A2"] = int(cd.get("A2_pieces") or 0)
-    seed_vars["A3"] = int(cd.get("A3_door_type") or 0)
-    seed_vars["A4"] = int(cd.get("A4_door_count") or 0)
-    a6_str = f"{seed_vars['A1']}{seed_vars['A2']}{seed_vars['A3']}{seed_vars['A4']}"
-    seed_vars["A6"] = int(a6_str) if a6_str.isdigit() else 0
-    context["a6"] = a6_str
-    obj.A6_sheet_code = seed_vars["A6"]
+    var: Dict[str, Any] = {v: as_num(cd.get(f),0.0) for f,v in FIELD_TO_VAR.items() if f in cd}
+    var["A1"],var["A2"],var["A3"],var["A4"] = int(cd["A1_layers"]),int(cd["A2_pieces"]),int(cd["A3_door_type"]),int(cd["A4_door_count"])
+    a6_str = f'{var["A1"]}{var["A2"]}{var["A3"]}{var["A4"]}'
+    var["A6"] = int(a6_str) if a6_str.isdigit() else 0
+    ctx["a6"] = a6_str; obj.A6_sheet_code = var["A6"]
 
-    # پر کردن مستقیم سلول‌ها و قیمت‌ها از تنظیمات
-    fill_vars_from_settings(bs, settlement, seed_vars, cd)
+    # تنظیمات
+    def _fill_from_settings(bs: BaseSettings, settlement: str, var: dict, cd: dict|None=None):
+        f = lambda x: as_num(x,0.0)
+        var["M30"],var["M31"],var["M33"] = f(bs.overhead_per_meter),f(bs.sheet_price_cash),f(bs.sheet_price_credit)
+        var["I41"],var["E43"],var["H43"],var["J43"] = f(bs.profit_rate_percent),f(bs.shipping_cost),f(bs.pallet_cost),f(bs.interface_cost)
+        e46 = as_num(cd.get("E46_round_adjust"),0.0) if cd else 0.0
+        if not e46:
+            try: e46 = as_num((bs.custom_vars or {}).get("E46"),0.0)
+            except Exception: e46 = 0.0
+        var["E46"] = e46
+        var["sheet_price"] = var["M33"] if settlement=="credit" else var["M31"]
+        var["Fee_amount"]  = var["sheet_price"]
+    _fill_from_settings(bs, settlement, var, cd)
+    obj.I41_profit_rate, obj.E43_shipping, obj.H43_pallet, obj.J43_interface = map(lambda v: Decimal(str(v)), (var["I41"],var["E43"],var["H43"],var["J43"]))
 
-    # کپی برخی ثابت‌ها به آبجکت
-    obj.I41_profit_rate = Decimal(str(seed_vars["I41"]))
-    obj.E43_shipping    = Decimal(str(seed_vars["E43"]))
-    obj.H43_pallet      = Decimal(str(seed_vars["H43"]))
-    obj.J43_interface   = Decimal(str(seed_vars["J43"]))
-
-    # ---------- فرمول‌ها ----------
+    # رزولور
     formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormula.objects.all()}
     token_re = re.compile(r"\b([A-Z]+[0-9]+)\b")
-    for token in {t for e in formulas_raw.values() for t in token_re.findall(e or "")}:
-        if token not in seed_vars and token in VAR_TO_FIELD:
-            seed_vars[token] = as_num(cd.get(VAR_TO_FIELD[token]), 0.0)
-    for k in ("E17", "I17", "F24", "sheet_width", "M24"):
-        seed_vars.setdefault(k, 0.0)
+    for t in {tok for e in formulas_raw.values() for tok in token_re.findall(e or "")}:
+        if t not in var and t in VAR_TO_FIELD:
+            var[t] = as_num(cd.get(VAR_TO_FIELD[t]),0.0)
+    for k in ("E17","I17","K15","E20","K20","F24","M24","sheet_width","I22","E28"):
+        var.setdefault(k,0.0)
 
-    resolve, var, formulas_py = build_resolver(formulas_raw, seed_vars)
-    var.update(seed_vars)
+    resolve, env, formulas_py = build_resolver(formulas_raw, var)
+    def _sr(key:str):
+        if key not in formulas_py: return None
+        try: return resolve(key)
+        except Exception: return None
 
-    # دوباره تنظیمات را داخل var هم می‌ریزیم تا حتماً override شود
-    fill_vars_from_settings(bs, settlement, var, cd)
-
-    context["debug_formulas"] = {k: render_formula(expr, seed_vars) for k, expr in formulas_py.items()}
-
-    def safe_resolve(key: str):
-        if key not in formulas_py:
-            return None
-        try:
-            return resolve(key)
-        except Exception as ex:
-            DBG(f"[EVAL:{key}] {ex}")
-            return None
-
-    # تثبیت E17 → I17 → K15
-    tail = seed_vars["A6"] % 100 if seed_vars["A6"] else 0
-    g15 = float(seed_vars.get("G15", 0.0))
-    if tail in (11, 12):
+    # تثبیت E17
+    tail = (var["A6"] % 100) if var["A6"] else 0
+    g15  = float(var.get("G15",0.0))
+    if tail in (11,12):
         e17_manual = as_num_or_none(cd.get("E17_lip"))
         if not e17_manual:
-            form.add_error("E17_lip", "این فیلد برای حالت‌های 11/12 الزامی است.")
-            context["errors"] = form.errors
-            return render(request, "carton_pricing/price_form.html", context)
+            form.add_error("E17_lip","این فیلد برای حالت‌های 11/12 الزامی است.")
+            ctx["errors"] = form.errors
+            ctx.update({"ui_stage":"s1","show_table":False,"show_papers":False})
+            return render(request,"carton_pricing/price_form.html",ctx)
         var["E17"] = float(e17_manual)
     else:
-        v_e17 = as_num_or_none(safe_resolve("E17"))
-        if v_e17 is not None and v_e17 != 0:
-            var["E17"] = float(v_e17)
-        elif g15 > 0 and tail in (21, 22):
-            var["E17"] = g15 / 2.0
-        elif g15 > 0 and tail in (31, 32):
-            var["E17"] = g15
+        e17_calc = _sr("E17")
+        if as_num_or_none(e17_calc): var["E17"] = float(e17_calc)
+        elif g15>0 and tail in (21,22): var["E17"] = g15/2.0
+        elif g15>0 and tail in (31,32): var["E17"] = g15
+        else: var["E17"] = as_num(cd.get("E17_lip"),0.0)
+
+    # rebuild برای K15
+    resolve, env, formulas_py = build_resolver(formulas_raw, {**env, **var})
+    var["I17"] = as_num(_sr("I17"), 0.0) if "I17" in formulas_py else as_num(var.get("E15"),0.0)+as_num(var.get("G15"),0.0)+3.5
+    k15_val = as_num(_sr("K15"),0.0)
+    if k15_val <= 0:
+        coef = 2 if (tail % 10)==1 else 1
+        if tail in (11,12):                 k15_val = max(0.0, var["I17"]*coef + as_num(var.get("I15"),0.0))
+        elif tail in (21,22,31,32):         k15_val = max(0.0, as_num(var.get("E17"),0.0)*coef + as_num(var.get("I15"),0.0))
         else:
-            var["E17"] = as_num(cd.get("E17_lip"), 0.0)
+            k15_val = max(as_num(var.get("E17"),0.0)*2 + as_num(var.get("I15"),0.0),
+                          var["I17"]*2 + as_num(var.get("I15"),0.0))
+    var["K15"] = k15_val
 
-    var["I17"] = as_num(safe_resolve("I17"), 0.0) if "I17" in formulas_py else var.get("I17", 0.0)
-    var["K15"] = as_num(safe_resolve("K15"), 0.0) if "K15" in formulas_py else var.get("K15", 0.0)
+    # E20 اولیه فقط برای پیش‌نمایش؛ مقدار ردیفی به‌صورت جدا محاسبه می‌شود
+    var["E20"] = as_num(var.get("E20") or _sr("E20"), 0.0)
 
-    # چند پاس برای پایدارسازی
+    # ───────── ساخت جدول مرحله ۱ ─────────
+    fixed_widths = bs.fixed_widths or [80, 90, 100, 110, 120, 125, 140]
+
+    def _rows_for_table(k15: float, widths: list[float], base_env: dict) -> list[dict]:
+        rows: list[dict] = []
+        k15v = float(k15 or 0.0)
+        ws: list[float] = []
+        for w in widths or []:
+            try:
+                v = float(w)
+                if v > 0: ws.append(v)
+            except Exception:
+                pass
+        ws.sort()
+
+        if k15v <= 0:
+            for w in ws: rows.append({"sheet_width": float(w), "f24": 0, "I22": None, "E28": None})
+            return rows
+
+        for w in ws:
+            f = int(min(30, math.floor((w + 1e-9) / k15v)))
+            if f <= 0:
+                rows.append({"sheet_width": float(w), "f24": 0, "I22": None, "E28": None})
+                continue
+
+            waste  = w - (k15v * f)  # I22 = M24 - (K15*F24)
+
+            # env مخصوص همین ردیف
+            row_env = {**base_env, "M24": float(w), "sheet_width": float(w), "F24": float(f)}
+            # محاسبهٔ E20 و بعد E28 با همون env (کلیدهای E20/E28 قبلی پاک می‌شوند)
+            e20_row = _calc_e20_row(row_env, formulas_raw)
+            row_env["E20"] = e20_row
+            e28_row = _calc_e28_row(row_env, formulas_raw)
+
+            rows.append({
+                "sheet_width": float(w),
+                "f24": int(f),
+                "I22": round(float(waste), 2),
+                "E28": round(float(e28_row), 4),
+            })
+        return rows
+
+    base_env = {**env, **var}   # تضمین موجود بودن E15/G15/I15/A6 ...
+    rows = _rows_for_table(k15=float(var["K15"]), widths=fixed_widths, base_env=base_env)
+    ctx["best_by_width"] = rows
+
+    # پیش‌نمایش (E20 از فرمول واقعی، K20 اگر صفر بود با F24 ردیف اول)
+    e20_preview = _calc_e20_row(base_env, formulas_raw)
+    k20_preview = as_num(_sr("K20"), 0.0)
+    if k20_preview <= 0 and rows:
+        k20_preview = as_num(var.get("K15"), 0.0) * float(rows[0]["f24"])
+    ctx["result_preview"] = {
+        "K15": q2(as_num(var.get("K15"), 0.0), "0.01"),
+        "E20": q2(as_num(e20_preview, 0.0), "0.01"),
+        "K20": q2(k20_preview, "0.01"),
+    }
+
+    # اگر هنوز مرحله ۱ است
+    if stage != "final":
+        ctx.update({"ui_stage":"s1","show_table":True,"show_papers":False})
+        return render(request,"carton_pricing/price_form.html",ctx)
+
+    # ───────── مرحله ۲ ─────────
+    picked_raw = (request.POST.get("sheet_choice") or "").strip()
+    chosen = None
+    w_try = as_num_or_none(picked_raw)
+    if w_try is not None:
+        chosen = next((r for r in rows if abs(r["sheet_width"]-w_try) < 1e-6), None)
+    if chosen is None and rows: chosen = rows[0]
+    if not chosen or int(chosen.get("f24") or 0) <= 0:
+        messages.error(request,"امکان محاسبهٔ نهایی نیست: F24 معتبر انتخاب نشده.")
+        ctx.update({"ui_stage":"s1","show_table":True,"show_papers":False})
+        return render(request,"carton_pricing/price_form.html",ctx)
+
+    # قفل انتخاب
+    var["M24"] = float(chosen["sheet_width"]); var["sheet_width"] = float(chosen["sheet_width"])
+    var["F24"] = float(max(1, int(chosen["f24"]))); var["I22"] = float(chosen["I22"] or 0.0)
+    var["E28"] = float(chosen["E28"] or 0.0)
+    obj.chosen_sheet_width  = q2(var["M24"], "0.01")
+    obj.F24_per_sheet_count = int(var["F24"])
+    obj.waste_warning = bool((chosen.get("I22") is not None) and chosen["I22"] >= 11.0)
+    obj.note_message  = ""
+
+    # جلوگیری از overwrite
+    for k in ("F24","M24","sheet_width","I22","E28"): formulas_py.pop(k, None)
+
+    # rebuild نهایی
+    resolve, env, formulas_py = build_resolver(formulas_raw, {**env, **var})
+    def _sr2(key: str):
+        if key not in formulas_py: return None
+        try: return resolve(key)
+        except Exception: return None
+
+    # K20 بعد از قطعی شدن F24
+    k20_val = as_num(_sr2("K20"), 0.0) if "K20" in formulas_py else 0.0
+    if k20_val <= 0: k20_val = as_num(var.get("F24"),0.0) * as_num(var.get("K15"),0.0)
+    var["K20"] = k20_val; obj.K20_industrial_wid = q2(k20_val, "0.01"); formulas_py.pop("K20", None)
+
+    # بقیه
+    BLOCK = {"E17","K15","F24","M24","sheet_width","I22","E28","K20"}
     for _ in range(5):
         changed = False
-        for key in formulas_py.keys():
-            if key in ("E17", "K15"):
-                continue
-            num = as_num_or_none(safe_resolve(key))
-            if num is not None and abs(var.get(key, 0.0) - num) > 1e-9:
-                var[key] = num
-                changed = True
-        if not changed:
-            break
+        for key in list(formulas_py.keys()):
+            if key in BLOCK: continue
+            v = _sr2(key); num = as_num_or_none(v)
+            if num is not None and abs(num - as_num(var.get(key),0.0)) > 1e-9:
+                var[key] = num; changed = True
+        if not changed: break
 
-    # ---------- پیشنهاد/انتخاب عرض ورق ----------
-    try:
-        var["E20"] = as_num(var.get("E20") or safe_resolve("E20"), 0.0)
-        var["K20"] = as_num(var.get("K20") or safe_resolve("K20"), 0.0)
-        obj.E20_industrial_len = q2(var["E20"], "0.01")
-        obj.K20_industrial_wid = q2(var["K20"], "0.01")
+    var["E20"] = as_num(var.get("E20") or _sr2("E20"), 0.0)
+    obj.E20_industrial_len = q2(var["E20"], "0.01")
 
-        required_w = var["K20"]
-        fixed_widths = bs.fixed_widths or [80, 90, 100, 110, 120, 125, 140]
+    # Fee_amount
+    base_fee = as_num(var.get("sheet_price"),0.0)
+    if base_fee <= 0: base_fee = as_num(bs.sheet_price_credit if settlement=="credit" else bs.sheet_price_cash,0.0)
+    var["Fee_amount"] = float(base_fee); ctx["fee_amount"] = float(base_fee)
+    try: setattr(obj,"Fee_amount", Decimal(str(var["Fee_amount"])))
+    except Exception: pass
 
-        k15_val = float(var.get("K15", 0.0))
-        context["best_by_width"] = best_for_each_width(k15_val, fixed_widths)
-        context["result_preview"] = {
-            "E20": q2(var["E20"], "0.01"),
-            "K20": q2(required_w, "0.01"),
-            "K15": q2(k15_val, "0.01"),
-        }
+    # نگاشت به مدل
+    obj.E28_carton_consumption = q2(var.get("E28",0.0), "0.0001")
+    obj.E38_sheet_area_m2      = q2(var.get("E38",0.0), "0.0001")
+    obj.I38_sheet_count        = int(math.ceil(var.get("I38",0.0)))
+    obj.E41_sheet_working_cost = q2(var.get("E41",0.0), "0.01")
+    obj.E40_overhead_cost      = q2(var.get("E40",0.0), "0.01")
+    obj.M40_total_cost         = q2(var.get("M40",0.0), "0.01")
+    obj.M41_profit_amount      = q2(var.get("M41",0.0), "0.01")
+    obj.H46_price_before_tax   = q2(var.get("H46",0.0), "0.01")
+    obj.J48_tax                = q2(var.get("J48",0.0), "0.01")
+    obj.E48_price_with_tax     = q2(var.get("E48",0.0), "0.01")
 
-        picked = as_num(request.POST.get("sheet_choice"), 0.0)
-        if picked and any(abs(picked - w) < 1e-6 for w in fixed_widths):
-            chosen_row = next((r for r in context["best_by_width"] if abs(r["sheet_width"] - picked) < 1e-6), None)
-            chosen_w = picked
-            var["M24"] = float(chosen_w)
+    if cd.get("save_record"):
+        with transaction.atomic(): obj.save()
+        messages.success(request,"برگه قیمت ذخیره شد.")
 
-            if chosen_row:
-                obj.F24_per_sheet_count = int(chosen_row["f24"])
-                var["F24"] = float(chosen_row["f24"])
-                need_txt = "—" if chosen_row["need"] is None else f"{chosen_row['need']:.2f}cm"
-                waste_txt = "—" if chosen_row["waste"] is None else f"{chosen_row['waste']:.2f}cm"
-                context["chosen_summary"] = (
-                    f"عرض ورق انتخابی: {int(round(chosen_row['sheet_width']))}cm | "
-                    f"F24: {chosen_row['f24']} | نیاز = F×K15: {need_txt} | دورریز: {waste_txt}"
-                )
-                obj.waste_warning = (chosen_row["waste"] is not None and chosen_row["waste"] >= 11.0)
-                obj.note_message = ""
-            else:
-                count, chosen_w, waste, warn, note = choose_per_sheet_and_width(required_w, fixed_widths, 11.0, var["E20"])
-                obj.F24_per_sheet_count = max(1, int(count))
-                var["F24"] = float(obj.F24_per_sheet_count)
-                obj.waste_warning = bool(warn)
-                obj.note_message = note
-
-            obj.chosen_sheet_width = q2(chosen_w, "0.01")
-        else:
-            count, chosen_w, waste, warn, note = choose_per_sheet_and_width(required_w, fixed_widths, 11.0, var["E20"])
-            obj.F24_per_sheet_count = max(1, int(count))
-            obj.chosen_sheet_width = q2(chosen_w, "0.01")
-            obj.waste_warning = bool(warn)
-            obj.note_message = note
-            var["M24"] = float(chosen_w)
-            var["F24"] = float(obj.F24_per_sheet_count)
-
-        var["sheet_width"] = float(obj.chosen_sheet_width)
-
-        # ---------- خروجی‌های محاسباتی ----------
-        # توجه: M31 و M33 را resolve نمی‌کنیم (مقادیر مستقیم از تنظیمات هستند)
-        for key in ["E28", "E38", "I38", "E41", "E40", "M40", "M41", "H46", "J48", "E48"]:
-            var[key] = as_num(safe_resolve(key), 0.0)
-
-        # ---------- تعیین Fee_amount ----------
-        base_fee = var["sheet_price"]  # از fill_vars_from_settings
-        if base_fee <= 0:
-            base_fee = _get_latest_fee_amount(
-                settlement=settlement,
-                fallback_cash=float(bs.sheet_price_cash or 0),
-                fallback_credit=float(bs.sheet_price_credit or 0),
-            )
-        var["Fee_amount"] = float(base_fee)
-        context["settlement"] = settlement
-        context["fee_amount"] = float(base_fee)
-        context["credit_days"] = credit_days
-
-        # اگر فیلدی برای Fee در مدل داری، این‌جا ست کن (try/except بی‌خطر)
-        try:
-            setattr(obj, "Fee_amount", Decimal(str(var["Fee_amount"])))
-        except Exception:
-            pass
-
-        # نگاشت خروجی‌ها به مدل
-        obj.E28_carton_consumption = q2(var["E28"], "0.0001")
-        obj.E38_sheet_area_m2      = q2(var["E38"], "0.0001")
-        obj.I38_sheet_count        = int(math.ceil(var["I38"] or 0.0))
-        obj.E41_sheet_working_cost = q2(var["E41"], "0.01")
-        obj.E40_overhead_cost      = q2(var["E40"], "0.01")
-        obj.M40_total_cost         = q2(var["M40"], "0.01")
-        obj.M41_profit_amount      = q2(var["M41"], "0.01")
-        obj.H46_price_before_tax   = q2(var["H46"], "0.01")
-        obj.J48_tax                = q2(var["J48"], "0.01")
-        obj.E48_price_with_tax     = q2(var["E48"], "0.01")
-
-    except Exception as e:
-        context["errors"] = {"__all__": [str(e)]}
-        context["vars"] = locals().get("var", {})
-        return render(request, "carton_pricing/price_form.html", context)
-
-    # ---------- ذخیره در صورت درخواست ----------
-    if form.cleaned_data.get("save_record"):
-        with transaction.atomic():
-            obj.save()
-        messages.success(request, "برگه قیمت ذخیره شد.")
-
-    context.update({"result": obj, "vars": var})
-    return render(request, "carton_pricing/price_form.html", context)
+    ctx.update({
+        "result": obj, "vars": var, "ui_stage": "final",
+        "show_table": True, "show_papers": True,
+        "result_preview": {"E20": obj.E20_industrial_len, "K20": obj.K20_industrial_wid, "K15": q2(as_num(var.get("K15"),0.0), "0.01")},
+    })
+    return render(request,"carton_pricing/price_form.html",ctx)
 
 # carton_pricing/views_paper.py
 from django.contrib import messages
