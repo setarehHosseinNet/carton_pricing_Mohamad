@@ -150,16 +150,41 @@ class BaseSettings(TimeStamped):
 
 
 # ------------------------- Paper & Flute -------------------------
+# apps/carton_pricing/models.py
+from django.db import models
+from django.core.validators import MinValueValidator
+from django.utils.translation import gettext_lazy as _
+
+# models.py
+class PaperGroup(TimeStamped):
+    name = models.CharField("نام گروه", max_length=120, unique=True)
+    class Meta:
+        ordering = ("name",)
+    def __str__(self): return self.name
+
+
 class Paper(TimeStamped):
-    """کاغذ (ID خودکار + نام یکتا)"""
-    name_paper = models.CharField("Name_Paper", max_length=120, unique=True)
+    name_paper   = models.CharField("Name_Paper", max_length=120, unique=True)
+
+    # ← موقتاً قابل تهی تا مایگریشن بدون پیش‌فرض بسازد
+    group        = models.ForeignKey(
+        PaperGroup,
+        verbose_name="گروه",
+        related_name="papers",
+        on_delete=models.PROTECT,   # یا SET_NULL اگر ترجیح می‌دهی
+        null=True, blank=True,
+    )
+
+    grammage_gsm = models.PositiveIntegerField("گرماژ (gsm)", null=True, blank=True)
+    width_cm     = models.DecimalField("عرض (cm)", max_digits=6, decimal_places=2, null=True, blank=True)
+    unit_price   = models.DecimalField("قیمت واحد", max_digits=12, decimal_places=2, null=True, blank=True)
+    unit_amount  = models.CharField("مقدار واحد", max_length=50, default="1 m²")
 
     class Meta:
         ordering = ("name_paper",)
 
     def __str__(self) -> str:
         return self.name_paper
-
 
 class FluteStep(TimeStamped):
     """فقط گام فلوت (کاملاً مستقل از کاغذ)"""

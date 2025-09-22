@@ -1,5 +1,6 @@
 # carton_pricing/admin.py
 from django.contrib import admin
+from django.utils.translation import gettext_lazy as _
 from .models import (
     Product,
     Customer,
@@ -7,13 +8,32 @@ from .models import (
     Order,
     OrderItem,
     BaseSettings,
+    PaperGroup,
     Paper,
     FluteStep,
     CalcFormula,
     PriceQuotation,
 )
 
-# ---------------- Inlines ----------------
+# ───────── helpers: safe inclusion of model fields ─────────
+def _model_field_names(model):
+    """برمی‌گرداند: مجموعه‌ی نام تمام فیلدهای مدل (Field/Rel/… )"""
+    return {f.name for f in model._meta.get_fields()}
+
+def _safe_flat(model, *names):
+    """
+    فقط نام‌هایی را نگه می‌دارد که واقعاً روی مدل وجود دارند
+    (برای list_display / list_filter / readonly_fields و ...).
+    """
+    avail = _model_field_names(model)
+    out = []
+    for n in names:
+        if n in avail or hasattr(model, n):
+            out.append(n)
+    return tuple(out)
+
+
+# ───────── Inlines ─────────
 class PhoneInline(admin.TabularInline):
     model = PhoneNumber
     extra = 1
@@ -25,38 +45,45 @@ class OrderItemInline(admin.TabularInline):
     autocomplete_fields = ("product",)
 
 
-# ---------------- Customers / Products / Orders ----------------
+# ───────── Customers / Products / Orders ─────────
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
     list_display = ("id", "first_name", "last_name", "organization", "economic_no")
     search_fields = ("first_name", "last_name", "organization", "economic_no", "phones__number")
     inlines = [PhoneInline]
     ordering = ("id",)
+    list_per_page = 50
 
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "code", "created_at")
+    list_display = _safe_flat(Product, "id", "name", "code", "created_at", "updated_at")
     search_fields = ("name", "code")
-    ordering = ("-created_at",)
+    ordering = ("-id",)
+    list_per_page = 50
 
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "order_no", "customer", "registered_at", "status", "total_price")
-    list_filter = ("status", "registered_at")
+    list_display = _safe_flat(
+        Order,
+        "id", "order_no", "customer", "registered_at", "status", "total_price", "updated_at"
+    )
+    list_filter = _safe_flat(Order, "status", "registered_at")
     search_fields = ("order_no", "customer__first_name", "customer__last_name", "customer__organization")
     inlines = [OrderItemInline]
     autocomplete_fields = ("customer",)
     date_hierarchy = "registered_at"
     list_select_related = ("customer",)
     ordering = ("-registered_at", "-id")
+    list_per_page = 50
 
 
-# ---------------- Settings / Catalog ----------------
+# ───────── Settings / Catalog ─────────
 @admin.register(BaseSettings)
 class BaseSettingsAdmin(admin.ModelAdmin):
-    list_display = (
+    list_display = _safe_flat(
+        BaseSettings,
         "id",
         "overhead_per_meter",
         "sheet_price_cash",
@@ -64,37 +91,68 @@ class BaseSettingsAdmin(admin.ModelAdmin):
         "profit_rate_percent",
         "updated_at",
     )
-    readonly_fields = ("singleton_key",)
-    ordering = ("-updated_at", "-id")
+    readonly_fields = _safe_flat(BaseSettings, "singleton_key", "created_at", "updated_at")
+    ordering = ("-id",)
     search_fields = ("id",)
+    list_per_page = 25
+
+
+@admin.register(PaperGroup)
+class PaperGroupAdmin(admin.ModelAdmin):
+    list_display = _safe_flat(PaperGroup, "id", "name", "is_active", "description", "updated_at")
+    # مهم: list_filter هم ایمن شود تا اگر is_active هنوز در مدل نباشد، خطا ندهد
+    list_filter  = _safe_flat(PaperGroup, "is_active", "created_at", "updated_at")
+    search_fields = ("name", "description")
+    ordering = ("name",)
+    list_per_page = 50
 
 
 @admin.register(Paper)
 class PaperAdmin(admin.ModelAdmin):
-    list_display = ("id", "name_paper", "updated_at")
-    search_fields = ("name_paper",)
+    # name_paper + فیلدهای جدید: group, grammage_gsm, width_cm, unit, unit_amount, unit_price, is_active
+    list_display = _safe_flat(
+        Paper,
+        "id",
+        "name_paper",
+        "group",
+        "grammage_gsm",
+        "width_cm",
+        "unit",
+        "unit_amount",
+        "unit_price",
+        "is_active",
+        "updated_at",
+    )
+    list_filter = _safe_flat(Paper, "group", "unit", "is_active")
+    search_fields = ("name_paper", "group__name")
+    autocomplete_fields = _safe_flat(Paper, "group")
+    list_select_related = _safe_flat(Paper, "group")
     ordering = ("name_paper",)
+    list_per_page = 50
+    readonly_fields = _safe_flat(Paper, "created_at", "updated_at")
 
 
 @admin.register(FluteStep)
 class FluteStepAdmin(admin.ModelAdmin):
-    # در نسخه‌ی جدید فقط کلید گام را نگه می‌داریم
-    list_display = ("key", "updated_at")
+    list_display = _safe_flat(FluteStep, "key", "updated_at")
     search_fields = ("key",)
     ordering = ("key",)
+    list_per_page = 50
 
 
 @admin.register(CalcFormula)
 class CalcFormulaAdmin(admin.ModelAdmin):
-    list_display = ("key", "description", "updated_at")
+    list_display = _safe_flat(CalcFormula, "key", "description", "updated_at")
     search_fields = ("key", "description", "expression")
     ordering = ("key",)
+    list_per_page = 100
 
 
-# ---------------- Price Quotation ----------------
+# ───────── Price Quotation ─────────
 @admin.register(PriceQuotation)
 class PriceQuotationAdmin(admin.ModelAdmin):
-    list_display = (
+    list_display = _safe_flat(
+        PriceQuotation,
         "id",
         "customer",
         "carton_name",
@@ -104,7 +162,9 @@ class PriceQuotationAdmin(admin.ModelAdmin):
         "waste_warning",
         "created_at",
     )
-    list_filter = ("payment_type", "waste_warning", "created_at", "A1_layers", "A2_pieces")
+    list_filter = _safe_flat(
+        PriceQuotation, "payment_type", "waste_warning", "created_at", "A1_layers", "A2_pieces"
+    )
     search_fields = (
         "carton_name",
         "product_code",
@@ -117,7 +177,8 @@ class PriceQuotationAdmin(admin.ModelAdmin):
         "pq_c_flute__name_paper",
         "pq_bottom_layer__name_paper",
     )
-    autocomplete_fields = (
+    autocomplete_fields = _safe_flat(
+        PriceQuotation,
         "customer",
         "D31_flute",
         "pq_glue_machine",
@@ -126,7 +187,8 @@ class PriceQuotationAdmin(admin.ModelAdmin):
         "pq_c_flute",
         "pq_bottom_layer",
     )
-    list_select_related = (
+    list_select_related = _safe_flat(
+        PriceQuotation,
         "customer",
         "D31_flute",
         "pq_glue_machine",
@@ -137,9 +199,10 @@ class PriceQuotationAdmin(admin.ModelAdmin):
     )
     date_hierarchy = "created_at"
     ordering = ("-created_at", "-id")
+    list_per_page = 50
 
-    # فیلدهای محاسباتی را readonly می‌گذاریم تا از ویرایشِ دستی جلوگیری شود
-    readonly_fields = (
+    readonly_fields = _safe_flat(
+        PriceQuotation,
         "A6_sheet_code",
         "E20_industrial_len",
         "K20_industrial_wid",
@@ -166,7 +229,7 @@ class PriceQuotationAdmin(admin.ModelAdmin):
     )
 
     fieldsets = (
-        ("مشتری و توضیحات", {
+        (_("مشتری و توضیحات"), {
             "fields": (
                 "customer",
                 "contact_phone",
@@ -177,14 +240,14 @@ class PriceQuotationAdmin(admin.ModelAdmin):
                 "description",
             )
         }),
-        ("گزینه‌ها", {
+        (_("گزینه‌ها"), {
             "fields": (
                 "has_print_notes",
                 ("dim_customer", "dim_customer_sample", "dim_sample"),
                 ("tech_new_cliche", "tech_handle_slot", "tech_punch", "tech_pallet", "tech_shipping_on_customer"),
             )
         }),
-        ("پارامترهای اصلی", {
+        (_("پارامترهای اصلی"), {
             "fields": (
                 "I8_qty",
                 ("A1_layers", "A2_pieces", "A3_door_type", "A4_door_count"),
@@ -192,10 +255,10 @@ class PriceQuotationAdmin(admin.ModelAdmin):
                 "E17_lip",
                 "D31_flute",
                 "E46_round_adjust",
-                ("payment_type",),
+                "payment_type",
             )
         }),
-        ("ترکیب کاغذ (مستقل از گام فلوت)", {
+        (_("ترکیب کاغذ (مستقل از گام فلوت)"), {
             "fields": (
                 "pq_glue_machine",
                 "pq_be_flute",
@@ -204,7 +267,7 @@ class PriceQuotationAdmin(admin.ModelAdmin):
                 "pq_bottom_layer",
             )
         }),
-        ("نتایج/اسنپ‌شات محاسبه (فقط‌خواندنی)", {
+        (_("نتایج/اسنپ‌شات محاسبه (فقط‌خواندنی)"), {
             "classes": ("collapse",),
             "fields": (
                 "A6_sheet_code",
