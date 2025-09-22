@@ -34,6 +34,8 @@
 
 <form method="post" id="priceForm" class="card card-body shadow-sm mb-4" dir="rtl" novalidate>
   {% csrf_token %}
+  {# مرحله پیش‌فرض را نگه داریم؛ با کلیک روی دکمه‌ها مقدارش عوض می‌شود #}
+  <input type="hidden" name="stage" id="stageField" value="{{ ui_stage|default:'s1' }}"/>
 
   <div class="row g-3">
     {# ── اطلاعات مشتری ── #}
@@ -61,12 +63,10 @@
 
     <hr class="my-2"/>
 
-    {# ── گزینه‌های چاپ/ابعاد/فنی ── #}
+    {# ── گزینه‌های چاپ/فنی ── #}
     <div class="col-12">
       <div class="d-flex flex-wrap align-items-center gap-3">
-        <label class="form-check mb-0">
-          {{ form.has_print_notes_bool }} {{ form.has_print_notes_bool.label }}
-        </label>
+        <label class="form-check mb-0">{{ form.has_print_notes_bool }} {{ form.has_print_notes_bool.label }}</label>
 
         <label class="form-check mb-0">{{ form.dim_customer }} {{ form.dim_customer.label }}</label>
         <label class="form-check mb-0">{{ form.dim_customer_sample }} {{ form.dim_customer_sample.label }}</label>
@@ -146,9 +146,7 @@
     <div class="col-md-3" id="field-e17-wrap">
       <label class="form-label" for="{{ form.E17_lip.id_for_label }}">{{ form.E17_lip.label }}</label>
       {{ form.E17_lip }}
-      <div class="form-text text-muted" id="field-e17-hint">
-        این فیلد فقط وقتی لازم است که انتهای A6 عدد 11 یا 12 باشد؛ در غیر این صورت مقدارش از فرمول محاسبه می‌شود.
-      </div>
+      <div class="form-text text-muted">برای انتهای A6 = 11 یا 12 اجباری است؛ در غیر این صورت از فرمول محاسبه می‌شود.</div>
       {% for e in form.E17_lip.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
@@ -159,7 +157,7 @@
       {% for e in form.D31_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# ── تسویه فاکتور ── #}
+    {# ── تسویه ── #}
     <div class="col-md-3">
       <label class="form-label d-block">تسویه فاکتور</label>
       <div class="form-check form-check-inline">
@@ -186,13 +184,7 @@
       {% for e in form.E46_round_adjust.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    <div class="col-12">
-      <label class="form-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
-      {{ form.description }}
-      {% for e in form.description.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
-    </div>
-
-    {# ── ⬇️ جابه‌جا شده: «انتخاب عرض ورق» به اینجا آمد (جای «ترکیب کاغذ») ── #}
+    {# ── کارت انتخاب عرض ورق ── #}
     {% if best_by_width %}
       <div class="col-12">
         <div class="card mt-2">
@@ -218,66 +210,50 @@
                   </tr>
                 </thead>
                 <tbody>
-  {% for r in best_by_width %}
-    <tr>
-      <td>
-        <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
-               {% if request.POST.sheet_choice %}
-                 {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
-               {% elif forloop.first %}checked{% endif %}>
-      </td>
-
-      <td>{{ r.sheet_width|floatformat:0 }}</td>
-      <td>{{ r.f24 }}</td>
-
-      {# --- I22: رنگی بر اساس 0 < I22 < 11 --- #}
-      <td class="
-          {% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}
-            text-success fw-bold
-          {% elif r.I22 is not None %}
-            text-danger
-          {% else %}
-            text-muted
-          {% endif %}
-      ">
-        {% if r.I22 is not None %}{{ r.I22|floatformat:2 }}{% else %}—{% endif %}
-      </td>
-
-      {# --- E28: مثل قبل نمایش معمولی --- #}
-      <td>
-        {% if r.E28 is not None %}{{ r.E28|floatformat:4 }}{% else %}—{% endif %}
-      </td>
-    </tr>
-  {% endfor %}
-</tbody>
-
-
+                  {% for r in best_by_width %}
+                    <tr>
+                      <td>
+                        <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
+                               {% if request.POST.sheet_choice %}
+                                 {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
+                               {% elif forloop.first %}checked{% endif %}>
+                      </td>
+                      <td>{{ r.sheet_width|floatformat:0 }}</td>
+                      <td>{{ r.f24 }}</td>
+                      <td class="{% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}text-success fw-bold{% elif r.I22 is not None %}text-danger{% else %}text-muted{% endif %}">
+                        {% if r.I22 is not None %}{{ r.I22|floatformat:2 }}{% else %}—{% endif %}
+                      </td>
+                      <td>{% if r.E28 is not None %}{{ r.E28|floatformat:4 }}{% else %}—{% endif %}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
               </table>
             </div>
 
-            <button class="btn btn-primary mt-2">محاسبه</button>
+            {# دکمه مرحله ۱: فقط جدول؛ بدون اعتبارسنجی اضافی #}
+            <button class="btn btn-outline-primary mt-2" type="submit" data-stage="s1" formnovalidate>محاسبه جدول</button>
           </div>
         </div>
       </div>
     {% endif %}
 
-    {# ── ذخیره خودکار ── #}
+    {# ── ذخیره رکورد ── #}
     <div class="col-12 form-check mt-2">
       {{ form.save_record }} {{ form.save_record.label_tag }}
     </div>
 
-    {# ── دکمه محاسبه + نمایش A6 ── #}
+    {# ── دکمه محاسبه نهایی + A6 ── #}
     <div class="col-12">
       <div class="d-flex align-items-center gap-3">
         <strong id="a6_display" class="text-secondary small" aria-live="polite">A6 = —</strong>
-        <button id="btnSubmit" class="btn btn-primary">
+        <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
           <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-          محاسبه
+          محاسبه نهایی
         </button>
       </div>
     </div>
 
-    {# ── ⬇️ جابه‌جا شده: «ترکیب کاغذ» به پایین منتقل شد ── #}
+    {# ── ترکیب کاغذ ── #}
     <div class="col-12">
       <div class="card mt-2">
         <div class="card-header">ترکیب کاغذ</div>
@@ -312,11 +288,10 @@
     </div>
 
   </div>{# /row #}
-
 </form>
 
-{# ── نتایج ── #}
-{% if result %}
+{# ── نتایج (وقتی مرحله نهایی است) ── #}
+{% if ui_stage == 'final' %}
   <div class="card shadow-sm">
     <div class="card-header">نتیجه محاسبات</div>
     <div class="card-body">
@@ -337,13 +312,12 @@
         <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax }}</div>
         <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax }}</div>
         <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax }}</div>
-        <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|floatformat:2 }}</div>
+        <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|floatformat:2 }}</div>
       </div>
     </div>
   </div>
 {% endif %}
 
-{# URLها برای JS #}
 <script>
   window.URLS = {
     api_last_order: "{% url 'carton_pricing:api_last_order' %}",
@@ -363,7 +337,7 @@
   }
   const CSRF = getCookie('csrftoken');
 
-  // read value (input/select/radio)
+  // read value
   function getFieldValue(name) {
     const byId = document.getElementById('id_' + name);
     if (byId) return byId.value;
@@ -493,19 +467,25 @@
   document.getElementById('settle_cash').addEventListener('change', syncSettlementUI);
   document.getElementById('settle_credit').addEventListener('change', syncSettlementUI);
 
-  // listeners برای محاسبه A6 / نمایش E17
+  // A6/E17 live
   ['A1_layers','A2_pieces','A3_door_type','A4_door_count'].forEach(name=>{
     const el = document.getElementById('id_' + name);
     (el ? [el] : document.querySelectorAll('input[name="'+name+'"]'))
       .forEach(r => { r.addEventListener('change', updateA6AndE17); r.addEventListener('input', updateA6AndE17); });
   });
 
-  // submit
+  // stage setter for submit buttons
+  const stageField = document.getElementById('stageField');
+  document.querySelectorAll('button[type="submit"][data-stage]').forEach(btn=>{
+    btn.addEventListener('click', ()=> { if(stageField) stageField.value = btn.dataset.stage; });
+  });
+
+  // submit UX
   const btnSubmit = document.getElementById('btnSubmit');
   const btnSpinner = document.getElementById('btnSpinner');
   document.getElementById('priceForm')?.addEventListener('submit', ()=>{
-    btnSpinner.classList.remove('d-none');
-    btnSubmit.setAttribute('disabled','disabled');
+    if(btnSpinner){ btnSpinner.classList.remove('d-none'); }
+    if(btnSubmit){ btnSubmit.setAttribute('disabled','disabled'); }
   });
 
   // init
