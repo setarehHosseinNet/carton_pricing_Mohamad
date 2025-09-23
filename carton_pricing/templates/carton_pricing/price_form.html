@@ -34,7 +34,6 @@
 
 <form method="post" id="priceForm" class="card card-body shadow-sm mb-4" dir="rtl" novalidate>
   {% csrf_token %}
-  {# مرحله پیش‌فرض را نگه داریم؛ با کلیک روی دکمه‌ها مقدارش عوض می‌شود #}
   <input type="hidden" name="stage" id="stageField" value="{{ ui_stage|default:'s1' }}"/>
 
   <div class="row g-3">
@@ -142,12 +141,17 @@
       {% for e in form.I15_hgt.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# ── لب درب ── #}
-    <div class="col-md-3" id="field-e17-wrap">
+    {# ── لب درب (فقط برای «درب باز») ── #}
+    <div class="col-md-3 open-door-extra d-none" id="field-e17-wrap">
       <label class="form-label" for="{{ form.E17_lip.id_for_label }}">{{ form.E17_lip.label }}</label>
       {{ form.E17_lip }}
-      <div class="form-text text-muted">برای انتهای A6 = 11 یا 12 اجباری است؛ در غیر این صورت از فرمول محاسبه می‌شود.</div>
       {% for e in form.E17_lip.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-md-3 open-door-extra d-none" id="field-open-bottom-door">
+      <label class="form-label" for="{{ form.open_bottom_door.id_for_label }}">{{ form.open_bottom_door.label }}</label>
+      {{ form.open_bottom_door }}
+      {% for e in form.open_bottom_door.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
     {# ── گام فلوت ── #}
@@ -230,7 +234,6 @@
               </table>
             </div>
 
-            {# دکمه مرحله ۱: فقط جدول؛ بدون اعتبارسنجی اضافی #}
             <button class="btn btn-outline-primary mt-2" type="submit" data-stage="s1" formnovalidate>محاسبه جدول</button>
           </div>
         </div>
@@ -242,10 +245,9 @@
       {{ form.save_record }} {{ form.save_record.label_tag }}
     </div>
 
-    {# ── دکمه محاسبه نهایی + A6 ── #}
+    {# ── دکمه محاسبه نهایی ── #}
     <div class="col-12">
       <div class="d-flex align-items-center gap-3">
-        <strong id="a6_display" class="text-secondary small" aria-live="polite">A6 = —</strong>
         <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
           <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
           محاسبه نهایی
@@ -290,7 +292,6 @@
   </div>{# /row #}
 </form>
 
-{# ── نتایج (وقتی مرحله نهایی است) ── #}
 {% if ui_stage == 'final' %}
   <div class="card shadow-sm">
     <div class="card-header">نتیجه محاسبات</div>
@@ -319,66 +320,81 @@
 {% endif %}
 
 <script>
-  window.URLS = {
-    api_last_order: "{% url 'carton_pricing:api_last_order' %}",
-    api_add_customer: "{% url 'carton_pricing:api_add_customer' %}",
-    api_add_phone: "{% url 'carton_pricing:api_add_phone' %}",
-  };
-</script>
-
-<script>
 (function () {
   "use strict";
 
-  // CSRF
+  // ===== helpers =====
   function getCookie(name){
     const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
     return m ? m.pop() : '';
   }
   const CSRF = getCookie('csrftoken');
 
-  // read value
-  function getFieldValue(name) {
-    const byId = document.getElementById('id_' + name);
-    if (byId) return byId.value;
-    const radios = document.querySelectorAll('input[name="' + name + '"]');
-    if (radios.length) {
-      const checked = Array.from(radios).find(r => r.checked);
-      return checked ? checked.value : '';
-    }
-    return '';
-  }
-
-  // A6 + E17 visibility
-  function updateA6AndE17() {
-    const a1 = getFieldValue('A1_layers') || '0';
-    const a2 = getFieldValue('A2_pieces') || '0';
-    const a3 = getFieldValue('A3_door_type') || '0';
-    const a4 = getFieldValue('A4_door_count') || '0';
-    const code = a1 + a2 + a3 + a4;
-
-    const a6El = document.getElementById('a6_display');
-    if (a6El) a6El.textContent = 'A6 = ' + (/^\d{4}$/.test(code) ? code : '—');
-
-    const wrap = document.getElementById('field-e17-wrap');
-    const e17  = document.getElementById('id_E17_lip');
-    if (/^\d{4}$/.test(code)) {
-      const tail = parseInt(code.slice(-2), 10);
-      const needManual = (tail === 11 || tail === 12);
-      wrap.style.display = needManual ? '' : 'none';
-      if (!needManual && e17) e17.value = '';
-    } else {
-      wrap.style.display = '';
+  // نمایش/مخفی‌سازی فیلدهای «درب باز»
+  function toggleOpenDoorExtras(show) {
+    document.querySelectorAll('.open-door-extra').forEach(el=>{
+      el.classList.toggle('d-none', !show);
+    });
+    if(!show){
+      ['id_E17_lip','id_open_bottom_door'].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el) el.value = '';
+      });
     }
   }
 
-  // last order
+  // تشخیص انتخاب «درب باز» در سلکت A3
+  function isOpenDoorSelected() {
+    const sel = document.getElementById('id_A3_door_type');
+    if(!sel) return false;
+    const idx  = sel.selectedIndex;
+    const val  = (sel.value || '').trim();
+    const text = (sel.options[idx]?.text || '').replace(/\s+/g,'').trim();
+    return val === '1' || idx === 1 || text === 'دربباز';
+  }
+
+  function updateByA3() { toggleOpenDoorExtras(isOpenDoorSelected()); }
+
+  // تسویه: نمایش روزهای مدت‌دار + همگام‌سازی payment_type
+  function syncSettlementUI(){
+    const cash = document.getElementById('settle_cash').checked;
+    const sel  = document.getElementById('id_payment_type');
+    if(sel) sel.value = cash ? 'cash' : 'credit';
+    document.getElementById('creditDaysWrap').classList.toggle('d-none', cash);
+  }
+
+  // --- رویدادها ---
+  const a3 = document.getElementById('id_A3_door_type');
+  a3?.addEventListener('change', updateByA3);
+  a3?.addEventListener('input', updateByA3);
+  if (window.jQuery && jQuery.fn && jQuery.fn.select2 && a3) {
+    jQuery(a3).on('change.select2', updateByA3);
+  }
+
+  document.getElementById('settle_cash').addEventListener('change', syncSettlementUI);
+  document.getElementById('settle_credit').addEventListener('change', syncSettlementUI);
+
+  // ذخیره مرحله ارسال
+  const stageField = document.getElementById('stageField');
+  document.querySelectorAll('button[type="submit"][data-stage]').forEach(btn=>{
+    btn.addEventListener('click', ()=> { if(stageField) stageField.value = btn.dataset.stage; });
+  });
+
+  // UX ارسال
+  const btnSubmit = document.getElementById('btnSubmit');
+  const btnSpinner = document.getElementById('btnSpinner');
+  document.getElementById('priceForm')?.addEventListener('submit', ()=>{
+    btnSpinner?.classList.remove('d-none');
+    btnSubmit?.setAttribute('disabled','disabled');
+  });
+
+  // درخواست «آخرین سفارش» بعد از انتخاب مشتری
   const customerSel = document.getElementById('id_customer');
   const lastInfo = document.getElementById('lastOrderInfo');
   async function fetchLast(){
-    if(!customerSel || !customerSel.value) return;
-    try {
-      const r = await fetch(window.URLS.api_last_order, {
+    if(!customerSel?.value) return;
+    try{
+      const r = await fetch("{% url 'carton_pricing:api_last_order' %}", {
         method:'POST',
         headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
         body:new URLSearchParams({customer_id: customerSel.value})
@@ -388,56 +404,49 @@
       lastInfo.textContent = (d.ok && data)
         ? `آخرین سفارش: تاریخ ${data.last_date || '—'} | فی ${data.last_fee || '—'} | نرخ ${data.last_rate || '—'}`
         : 'آخرین سفارشی یافت نشد';
-    } catch(e){}
+    }catch(e){}
   }
+  customerSel?.addEventListener('change', fetchLast);
 
-  // quick add customer (+phone)
+  // افزودن سریع مشتری/شماره
   async function quickAddCustomer(){
-    const help =
-`ورودی را به این شکل وارد کن (با ویرگول):
+    const help = `ورودی را اینطور بده (با ویرگول):
 نام, نام‌خانوادگی, شرکت/مجموعه, شماره تماس, برچسب تماس, شماره اقتصادی, آدرس`;
     const all = prompt(help) || '';
     const p = all.split(',').map(s => s.trim());
     if(!p[0]) return;
-
     const [first_name, last_name='', organization='', phone='', phone_label='', economic_no='', address=''] = p;
-
     try{
-      const res = await fetch(window.URLS.api_add_customer, {
+      const res = await fetch("{% url 'carton_pricing:api_add_customer' %}", {
         method:'POST',
         headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
         body:new URLSearchParams({first_name,last_name,organization,economic_no,address})
       });
       const data = await res.json();
       if(!data.ok){ alert('خطا در افزودن مشتری'); return; }
-
       const opt = new Option(data.text, data.id, true, true);
       customerSel.add(opt); customerSel.value = data.id;
-
       if(phone){
         try{
-          const r2 = await fetch(window.URLS.api_add_phone, {
+          const r2 = await fetch("{% url 'carton_pricing:api_add_phone' %}", {
             method:'POST',
             headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
             body:new URLSearchParams({customer:data.id, number:phone, label:phone_label||''})
           });
           const d2 = await r2.json();
-          if(d2.ok){
-            const phoneInput = document.getElementById('id_contact_phone');
-            if(phoneInput && !phoneInput.value) phoneInput.value = d2.text;
-          }
+          const phoneInput = document.getElementById('id_contact_phone');
+          if(d2.ok && phoneInput && !phoneInput.value) phoneInput.value = d2.text;
         }catch{}
       }
       fetchLast();
     }catch{ alert('اشکال در اتصال'); }
   }
-
   async function quickAddPhone(){
     if(!customerSel?.value){ alert('ابتدا مشتری را انتخاب کنید'); return; }
     const number = prompt('شماره تماس'); if(!number) return;
     const label = prompt('برچسب')||'';
     try{
-      const res = await fetch(window.URLS.api_add_phone, {
+      const res = await fetch("{% url 'carton_pricing:api_add_phone' %}", {
         method:'POST',
         headers:{'X-CSRFToken': CSRF,'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
         body:new URLSearchParams({customer:customerSel.value, number, label})
@@ -452,45 +461,12 @@
       }
     }catch{ alert('اشکال در اتصال'); }
   }
-
   document.getElementById('btnAddCustomer')?.addEventListener('click', quickAddCustomer);
   document.getElementById('btnAddPhone')?.addEventListener('click', quickAddPhone);
-  customerSel?.addEventListener('change', fetchLast);
 
-  // settlement UI
-  function syncSettlementUI(){
-    const cash = document.getElementById('settle_cash').checked;
-    const sel  = document.getElementById('id_payment_type');
-    if(sel) sel.value = cash ? 'cash' : 'credit';
-    document.getElementById('creditDaysWrap').classList.toggle('d-none', cash);
-  }
-  document.getElementById('settle_cash').addEventListener('change', syncSettlementUI);
-  document.getElementById('settle_credit').addEventListener('change', syncSettlementUI);
-
-  // A6/E17 live
-  ['A1_layers','A2_pieces','A3_door_type','A4_door_count'].forEach(name=>{
-    const el = document.getElementById('id_' + name);
-    (el ? [el] : document.querySelectorAll('input[name="'+name+'"]'))
-      .forEach(r => { r.addEventListener('change', updateA6AndE17); r.addEventListener('input', updateA6AndE17); });
-  });
-
-  // stage setter for submit buttons
-  const stageField = document.getElementById('stageField');
-  document.querySelectorAll('button[type="submit"][data-stage]').forEach(btn=>{
-    btn.addEventListener('click', ()=> { if(stageField) stageField.value = btn.dataset.stage; });
-  });
-
-  // submit UX
-  const btnSubmit = document.getElementById('btnSubmit');
-  const btnSpinner = document.getElementById('btnSpinner');
-  document.getElementById('priceForm')?.addEventListener('submit', ()=>{
-    if(btnSpinner){ btnSpinner.classList.remove('d-none'); }
-    if(btnSubmit){ btnSubmit.setAttribute('disabled','disabled'); }
-  });
-
-  // init
+  // اجرای اولیه
   window.addEventListener('load', ()=>{
-    updateA6AndE17();
+    updateByA3();
     fetchLast();
     syncSettlementUI();
   });

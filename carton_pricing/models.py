@@ -218,7 +218,7 @@ class PriceQuotation(TimeStamped):
     PRINT_CHOICES = [("yes", "دارد"), ("no", "ندارد")]
     LAYERS_CHOICES = [(1, "3 لایه"), (2, "5 لایه")]                   # A1
     PIECE_CHOICES = [(1, "یک تیکه"), (2, "نیم کارتن"), (3, "چهار تیکه")]  # A2
-    DOOR_TYPE_CHOICES = [(1, "درب باز"), (2, "درب بسته"), (3, "درب دوبل")] # A3
+    DOOR_TYPE_CHOICES = [(1, "باز/نامتوازن "), (2, "درب بسته"), (3, "درب دوبل")] # A3
     DOOR_COUNT_CHOICES = [(1, "دو درب"), (2, "تک درب")]                 # A4
 
     # اطلاعات پایه فرم

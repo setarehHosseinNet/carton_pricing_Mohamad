@@ -39,7 +39,14 @@ from .utils import (
 # تنظیمات/آداپتر (مصون‌سازی خروجی get_settings)
 from .settings_api import get_settings as get_settings_external
 from .helpers.settings_adapter import ensure_settings_model
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.core.paginator import Paginator
+from django.db.models import Q
 
+from .models import Paper
+from .forms import PaperForm
 # ─────────────────────── Helpers / Logger ─────────────────
 def DBG(*parts: Any) -> None:
     """لاگ سبک برای توسعه."""
@@ -554,12 +561,11 @@ def _calc_e28_row(env_row: dict, formulas_raw: dict) -> float:
 
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
-    مرحله‌ای:
-      s1   : گرفتن A1..A4 و E15,G15,I15 ⇒ ساخت جدول (انتخاب | M24 | F24 | I22 | E28)
-      final: بعد از انتخاب ردیف و ترکیب کاغذ ⇒ محاسبات نهایی با فرمول‌های CalcFormula
+    s1   : گرفتن A1..A4 و E15,G15,I15 ⇒ جدول (انتخاب | M24 | F24 | I22 | E28)
+    final: بعد از انتخاب ردیف ⇒ محاسبات نهایی
     """
     # ───────── helpers ─────────
-    PERSIAN_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٬٫،", "0123456789,.,")
+    PERSIAN_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٬٫،", "0123456789,,.")
     def _norm_num(x: Any) -> str:
         s = "" if x is None else str(x)
         return s.translate(PERSIAN_MAP).replace(",", "")
@@ -578,9 +584,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     def q2(val: float | Decimal, places: str) -> Decimal:
         return Decimal(val).quantize(Decimal(places), rounding=ROUND_HALF_UP)
 
-    # ───────── per-row calculators (کلید: پاک کردن E20/E28 قبل از resolve) ─────────
+    # ───────── per-row calculators ─────────
     def _calc_e20_row(env_row: dict, formulas_raw: dict) -> float:
-        """E20 مخصوص همان ردیف؛ اگر فرمول نبود/خطا ⇒ fallback امن."""
         env_local = dict(env_row)
         env_local.pop("E20", None)
         try:
@@ -591,7 +596,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                     return float(v)
         except Exception:
             pass
-        # fallback
         A6  = int(as_num(env_local.get("A6"), 0))
         E15 = as_num(env_local.get("E15"), 0.0)
         G15 = as_num(env_local.get("G15"), 0.0)
@@ -600,7 +604,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         return (E15 + G15) * 2 + 3.5
 
     def _calc_e28_row(env_row: dict, formulas_raw: dict) -> float:
-        """E28 همان ردیف؛ اگر فرمول نبود ⇒ E20_row*M24/F24/10000."""
         env_local = dict(env_row)
         e20_row = _calc_e20_row(env_local, formulas_raw)
         env_local["E20"] = e20_row
@@ -613,7 +616,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                     return float(v)
         except Exception:
             pass
-        F24 = as_num(env_local.get("F24"), 0.0)
+        F24 = as_num(env_local.get("F24"), 0.0)   # ← fix
         M24 = as_num(env_local.get("M24"), 0.0)
         return (e20_row * M24 / F24 / 10000.0) if (e20_row and F24) else 0.0
 
@@ -625,11 +628,11 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         form = PriceForm(initial={
             "A1_layers": 1, "A2_pieces": 1, "A3_door_type": 1, "A4_door_count": 1,
-            "payment_type": "cash",
-            "has_print_notes": False,
-            "tech_shipping_on_customer": False,
+            "payment_type": "cash", "has_print_notes": False, "tech_shipping_on_customer": False,
         })
         form.fields["E17_lip"].required = False
+        if "open_bottom_door" in form.fields:
+            form.fields["open_bottom_door"].required = False
         ctx.update({"form": form, "ui_stage": "s1", "show_table": False, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
@@ -637,6 +640,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     stage = (request.POST.get("stage") or "s1").strip().lower()
     form = PriceForm(request.POST)
     form.fields["E17_lip"].required = False
+    if "open_bottom_door" in form.fields:
+        form.fields["open_bottom_door"].required = False
     ctx["form"] = form
     if not form.is_valid():
         ctx["errors"] = form.errors
@@ -645,7 +650,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     cd  = form.cleaned_data
     obj: PriceQuotation = form.save(commit=False)
 
-    # تسویه
+    # ───────── settlement ─────────
     settlement = ("credit" if (request.POST.get("settlement") or cd.get("payment_type") or "cash").strip().lower() == "credit" else "cash")
     credit_days = int(as_num(request.POST.get("credit_days"), 0))
     ctx["settlement"]  = settlement
@@ -675,7 +680,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     ctx["a6"] = a6_str
     obj.A6_sheet_code = var["A6"]
 
-    # ───────── inject settings + Fee_amount fallback ─────────
+    # ───────── inject settings ─────────
     def _fill_from_settings(bs: BaseSettings, settlement: str, var: dict, cd: dict|None=None):
         def f(x): return as_num(x, 0.0)
         var["M30"] = f(bs.overhead_per_meter)
@@ -691,16 +696,11 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             except Exception: e46 = 0.0
         var["E46"] = e46
 
-        # قیمت پایه
         fee = var["M33"] if settlement == "credit" else var["M31"]
         if fee <= 0:
-            try:
-                fee = as_num((bs.custom_vars or {}).get("Fee_amount"), 0.0)
-            except Exception:
-                fee = 0.0
-        if fee <= 0:
-            fee = 1.0  # کف ایمنی
-
+            try: fee = as_num((bs.custom_vars or {}).get("Fee_amount"), 0.0)
+            except Exception: fee = 0.0
+        if fee <= 0: fee = 1.0
         var["sheet_price"] = fee
         var["Fee_amount"]  = fee
 
@@ -711,7 +711,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     obj.H43_pallet      = Decimal(str(var["H43"]))
     obj.J43_interface   = Decimal(str(var["J43"]))
 
-    # ───────── resolver اولیه ─────────
+    # ───────── resolver ─────────
     formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormula.objects.all()}
     token_re = re.compile(r"\b([A-Z]+[0-9]+)\b")
     for t in {tok for e in formulas_raw.values() for tok in token_re.findall(e or "")}:
@@ -726,47 +726,71 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         try: return resolve(key)
         except Exception: return None
 
-    # ───────── تثبیت E17 و بازسازی برای K15 ─────────
-    tail = (var["A6"] % 100) if var["A6"] else 0
-    g15  = float(var.get("G15", 0.0))
-    if tail in (11, 12):
-        e17_manual = as_num_or_none(cd.get("E17_lip"))
-        if not e17_manual:
-            form.add_error("E17_lip", "این فیلد برای حالت‌های 11/12 الزامی است.")
+    # ───────── E17 ─────────
+    tail      = (var["A6"] % 100) if var["A6"] else 0
+    g15_val   = as_num(cd.get("G15_wid"), 0.0)
+    e17_top   = as_num_or_none(cd.get("E17_lip"))
+    e17_bot   = as_num_or_none(cd.get("open_bottom_door"))
+
+    if tail in (11, 12):  # باز/نامتوازن
+        top_v = 0.0 if e17_top is None else float(e17_top)
+        bot_v = 0.0 if e17_bot is None else float(e17_bot)
+        if stage == "final" and (e17_top is None or e17_bot is None):
+            if e17_top is None: form.add_error("E17_lip", "لب درب بالا برای این حالت الزامی است.")
+            if e17_bot is None: form.add_error("open_bottom_door", "درب باز پایین برای این حالت الزامی است.")
             ctx["errors"] = form.errors
             ctx.update({"ui_stage": "s1", "show_table": False, "show_papers": False})
             return render(request, "carton_pricing/price_form.html", ctx)
-        var["E17"] = float(e17_manual)
+        var["E17"] = top_v + bot_v
+    elif tail in (21, 22):
+        var["E17"] = g15_val / 2.0
+    elif tail in (31, 32):
+        var["E17"] = g15_val
     else:
         e17_calc = _sr("E17")
-        if as_num_or_none(e17_calc): var["E17"] = float(e17_calc)
-        elif g15 > 0 and tail in (21, 22): var["E17"] = g15 / 2.0
-        elif g15 > 0 and tail in (31, 32): var["E17"] = g15
-        else: var["E17"] = as_num(cd.get("E17_lip"), 0.0)
+        var["E17"] = as_num(e17_calc, 0.0)
 
-    # rebuild برای K15
+    # جلوگیری از NOT NULL
+    try: obj.E17_lip = q2(var["E17"], "0.01")
+    except Exception: pass
+
+    # ───────── K15 / I17 ─────────
     resolve, env, formulas_py = build_resolver(formulas_raw, {**env, **var})
     var["I17"] = as_num(_sr("I17"), 0.0) if "I17" in formulas_py else as_num(var.get("E15"),0.0) + as_num(var.get("G15"),0.0) + 3.5
+
+    # 1) خروجی فرمول DB
     k15_val = as_num(_sr("K15"), 0.0)
-    if k15_val <= 0:
-        coef = 2 if (tail % 10) == 1 else 1
-        if tail in (11, 12):
-            k15_val = max(0.0, var["I17"] * coef + as_num(var.get("I15"), 0.0))
-        elif tail in (21, 22, 31, 32):
-            k15_val = max(0.0, as_num(var.get("E17"), 0.0) * coef + as_num(var.get("I15"), 0.0))
-        else:
-            k15_val = max(
-                as_num(var.get("E17"), 0.0) * 2 + as_num(var.get("I15"), 0.0),
-                var["I17"] * 2 + as_num(var.get("I15"), 0.0),
-            )
+
+    # 2) منطق دستی مطمئن (fallback)
+    coef = 2 if (tail % 10) == 1 else 1
+    if tail in (11, 12):
+        k15_logic = max(0.0, var["I17"] * coef + as_num(var.get("I15"), 0.0))
+    elif tail in (21, 22, 31, 32):
+        k15_logic = max(0.0, as_num(var.get("E17"), 0.0) * coef + as_num(var.get("I15"), 0.0))
+    else:
+        k15_logic = max(
+            as_num(var.get("E17"), 0.0) * 2 + as_num(var.get("I15"), 0.0),
+            var["I17"] * 2 + as_num(var.get("I15"), 0.0),
+        )
+
+    # 3) اگر K15 فرمولی نامعتبر/خیلی بزرگ بود، از fallback استفاده کن و در نهایت clamp
+    fixed_widths = bs.fixed_widths or [80, 90, 100, 110, 120, 125, 140]
+    try:
+        max_w = float(max(float(w) for w in fixed_widths))
+    except Exception:
+        max_w = 140.0
+
+    if (not math.isfinite(k15_val)) or k15_val <= 0 or k15_val > max_w:
+        k15_val = k15_logic
+
+    # clamp نهایی
+    k15_val = min(k15_val, max_w)
     var["K15"] = k15_val
 
-    # E20 برای پیش‌نمایش (E28 ردیف‌ها خودش را محاسبه می‌کند)
+    # پیش‌نمایش E20
     var["E20"] = as_num(var.get("E20") or _sr("E20"), 0.0)
 
     # ───────── جدول مرحله ۱ ─────────
-    fixed_widths = bs.fixed_widths or [80, 90, 100, 110, 120, 125, 140]
-
     def _rows_for_table(k15: float, widths: list[float], base_env: dict) -> list[dict]:
         rows: list[dict] = []
         k15v = float(k15 or 0.0)
@@ -778,7 +802,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                 if v > 0: ws.append(v)
             except Exception:
                 pass
-        ws.sort()
+        ws = sorted(set(ws))
 
         if k15v <= 0:
             for w in ws:
@@ -791,7 +815,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                 rows.append({"sheet_width": float(w), "f24": 0, "I22": None, "E28": None})
                 continue
 
-            waste   = w - (k15v * f)  # I22
+            waste   = w - (k15v * f)
             row_env = {**base_env, "M24": float(w), "sheet_width": float(w), "F24": float(f)}
 
             e20_row = _calc_e20_row(row_env, formulas_raw)
@@ -821,12 +845,11 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         "K20": q2(k20_preview, "0.01"),
     }
 
-    # مرحله ۱: فقط نمایش جدول
     if stage != "final":
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # ───────── مرحله ۲: انتخاب ردیف و محاسبۀ نهایی ─────────
+    # ───────── مرحله ۲ ─────────
     picked_raw = (request.POST.get("sheet_choice") or "").strip()
     chosen = None
     w_try = as_num_or_none(picked_raw)
@@ -839,7 +862,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # قفل انتخاب
     var["M24"]         = float(chosen["sheet_width"])
     var["sheet_width"] = float(chosen["sheet_width"])
     var["F24"]         = float(max(1, int(chosen["f24"])))
@@ -854,14 +876,12 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     for k in ("F24","M24","sheet_width","I22","E28"):
         formulas_py.pop(k, None)
 
-    # rebuild نهایی
     resolve, env, formulas_py = build_resolver(formulas_raw, {**env, **var})
     def _sr2(key: str):
         if key not in formulas_py: return None
         try: return resolve(key)
         except Exception: return None
 
-    # K20 پس از قطعی‌شدن F24
     k20_val = as_num(_sr2("K20"), 0.0) if "K20" in formulas_py else 0.0
     if k20_val <= 0:
         k20_val = as_num(var.get("F24"), 0.0) * as_num(var.get("K15"), 0.0)
@@ -869,41 +889,30 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     obj.K20_industrial_wid = q2(k20_val, "0.01")
     formulas_py.pop("K20", None)
 
-    # ارزیابی سایر خروجی‌ها
     BLOCK = {"E17","K15","F24","M24","sheet_width","I22","E28","K20"}
-    for _ in range(8):  # چند دور برای همگرایی
+    for _ in range(8):
         changed = False
         for key in list(formulas_py.keys()):
-            if key in BLOCK:
-                continue
-            v = _sr2(key)
-            num = as_num_or_none(v)
+            if key in BLOCK: continue
+            v = _sr2(key); num = as_num_or_none(v)
             if num is not None and abs(num - as_num(var.get(key), 0.0)) > 1e-9:
-                var[key] = num
-                changed = True
-        if not changed:
-            break
+                var[key] = num; changed = True
+        if not changed: break
 
     var["E20"] = as_num(var.get("E20") or _sr2("E20"), 0.0)
     obj.E20_industrial_len = q2(var["E20"], "0.01")
 
-    # Fee_amount نهایی روی مدل
     base_fee = as_num(var.get("sheet_price"), 0.0)
     if base_fee <= 0:
         base_fee = as_num(bs.sheet_price_credit if settlement == "credit" else bs.sheet_price_cash, 0.0)
         if base_fee <= 0:
-            try:
-                base_fee = as_num((bs.custom_vars or {}).get("Fee_amount"), 1.0)
-            except Exception:
-                base_fee = 1.0
+            try: base_fee = as_num((bs.custom_vars or {}).get("Fee_amount"), 1.0)
+            except Exception: base_fee = 1.0
     var["Fee_amount"] = float(base_fee)
     ctx["fee_amount"] = float(base_fee)
-    try:
-        setattr(obj, "Fee_amount", Decimal(str(var["Fee_amount"])))
-    except Exception:
-        pass
+    try: setattr(obj, "Fee_amount", Decimal(str(var["Fee_amount"])))
+    except Exception: pass
 
-    # نگاشت به مدل
     obj.E28_carton_consumption = q2(var.get("E28", 0.0), "0.0001")
     obj.E38_sheet_area_m2      = q2(var.get("E38", 0.0), "0.0001")
     obj.I38_sheet_count        = int(math.ceil(var.get("I38", 0.0)))
@@ -915,9 +924,13 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     obj.J48_tax                = q2(var.get("J48", 0.0), "0.01")
     obj.E48_price_with_tax     = q2(var.get("E48", 0.0), "0.01")
 
-    # ذخیره
     if cd.get("save_record"):
         with transaction.atomic():
+            if getattr(obj, "E17_lip", None) in (None, ""):
+                obj.E17_lip = q2(var["E17"], "0.01")
+            if hasattr(obj, "open_bottom_door") and e17_bot is not None:
+                try: obj.open_bottom_door = q2(float(e17_bot), "0.01")
+                except Exception: pass
             obj.save()
         messages.success(request, "برگه قیمت ذخیره شد.")
 
@@ -936,14 +949,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     return render(request, "carton_pricing/price_form.html", ctx)
 
 # carton_pricing/views_paper.py
-from django.contrib import messages
-from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
-from django.core.paginator import Paginator
-from django.db.models import Q
 
-from .models import Paper
-from .forms import PaperForm
 
 def paper_list_view(request):
     q = (request.GET.get("q") or "").strip()
