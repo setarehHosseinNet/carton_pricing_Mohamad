@@ -1,0 +1,118 @@
+تمام این کد رو باز نویسی کن{# templates/papers/group_form.html #}
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{% if mode == 'create' %}گروه جدید{% else %}ویرایش گروه{% endif %}{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">{% if mode == 'create' %}گروه جدید{% else %}ویرایش گروه{% endif %}</h3>
+
+<form method="post" novalidate class="card card-body">
+  {% csrf_token %}
+
+  {# پیام‌ها #}
+  {% if messages %}
+    {% for m in messages %}
+      <div class="alert alert-{{ m.tags|default:'info' }} mb-2">{{ m }}</div>
+    {% endfor %}
+  {% endif %}
+
+  {# خطاهای فرم اصلی #}
+  {{ form.non_field_errors }}
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+      {{ form.name }}
+      {% for e in form.name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <hr class="my-3">
+  <h5 class="mb-2">کاغذهای این گروه</h5>
+
+  {# خطاهای فرم‌ست #}
+  {{ formset.non_form_errors }}
+  {{ formset.management_form }}
+
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>نام کاغذ</th>
+          <th>گرماژ</th>
+          <th>عرض (cm)</th>
+          <th>قیمت واحد</th>
+          <th>مقدار واحد</th>
+          {% if formset.can_delete %}<th class="text-center">حذف؟</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody id="papers-tbody">
+        {% for f in formset.forms %}
+          <tr class="paper-row">
+            {# اگر ModelFormSet است، فیلد id را هم رندر کن تا ویرایش کار کند #}
+            {{ f.id }}
+            <td>
+              {{ f.name_paper }}
+              {% for e in f.name_paper.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+            </td>
+            <td>{{ f.grammage_gsm }}</td>
+            <td>{{ f.width_cm }}</td>
+            <td>{{ f.unit_price }}</td>
+            <td>{{ f.unit_amount }}</td>
+            {% if formset.can_delete %}
+              <td class="text-center">{{ f.DELETE }}</td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ردیف نمونهٔ خالی: خود empty_form جنگو با prefix = __prefix__ #}
+  <template id="empty-row">
+    <tr class="paper-row">
+      {{ formset.empty_form.id }}
+      <td>{{ formset.empty_form.name_paper }}</td>
+      <td>{{ formset.empty_form.grammage_gsm }}</td>
+      <td>{{ formset.empty_form.width_cm }}</td>
+      <td>{{ formset.empty_form.unit_price }}</td>
+      <td>{{ formset.empty_form.unit_amount }}</td>
+      {% if formset.can_delete %}
+        <td class="text-center">{{ formset.empty_form.DELETE }}</td>
+      {% endif %}
+    </tr>
+  </template>
+
+  <div class="d-flex gap-2">
+    <button type="button" id="btnAddRow" class="btn btn-outline-primary btn-sm">+ افزودن کاغذ</button>
+    <button type="submit" class="btn btn-success ms-auto">ذخیره</button>
+    <a class="btn btn-secondary" href="{% url 'carton_pricing:group_list' %}">بازگشت</a>
+  </div>
+</form>
+
+<script>
+(function(){
+  "use strict";
+  const tbody = document.getElementById("papers-tbody");
+  const addBtn = document.getElementById("btnAddRow");
+  if (!tbody || !addBtn) return;
+
+  const prefix = "{{ formset.prefix }}";                // مثلاً: paper_set
+  const totalForms = document.getElementById(`id_${prefix}-TOTAL_FORMS`);
+
+  // الگوی ردیف خالی از <template> می‌آید و __prefix__ را با ایندکس جایگزین می‌کنیم
+  const rowTpl = document.getElementById("empty-row").innerHTML.trim();
+
+  addBtn.addEventListener("click", function(){
+    const idx = parseInt(totalForms.value || "0", 10);
+    const html = rowTpl.replaceAll("__prefix__", idx);
+    const holder = document.createElement("tbody");
+    holder.innerHTML = html;
+    const row = holder.firstElementChild;
+    tbody.appendChild(row);
+    totalForms.value = idx + 1;
+  });
+})();
+</script>
+{% endblock %}

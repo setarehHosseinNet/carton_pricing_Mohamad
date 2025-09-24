@@ -1,81 +1,125 @@
+{# templates/base.html #}
 <!doctype html>
 <html lang="fa" dir="rtl">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>فرم قیمت کارتن محمد</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>{% block title %}فرم قیمت کارتن محمد{% endblock %}</title>
+
+  <!-- Bootstrap RTL -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+
+  <!-- Vazirmatn (FA) -->
   <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;700&display=swap" rel="stylesheet">
-  <style> body{font-family: Vazirmatn, sans-serif;} label{font-weight:600} .note{white-space:pre-line} </style>
-  <!-- Persian Datepicker -->
-  <script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
-  <script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
+
+  {% block head_css %}
+  <style>
+    body { font-family: Vazirmatn, sans-serif; }
+    label { font-weight: 600; }
+    .note { white-space: pre-line; }
+  </style>
+  {% endblock head_css %}
+
+  {% block head_extra %}{% endblock head_extra %}
 </head>
 <body class="bg-light">
 
 <nav class="navbar navbar-expand-lg bg-white border-bottom mb-3">
   <div class="container-fluid">
+
     <a class="navbar-brand" href="{% url 'carton_pricing:price_form' %}">کارتن محمد</a>
 
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav" aria-controls="topNav" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>
 
+    {% with url_name=request.resolver_match.url_name|default:"" %}
     <div id="topNav" class="collapse navbar-collapse">
       <ul class="navbar-nav me-auto">
 
         <!-- فرم قیمت -->
         <li class="nav-item">
-          <!-- اگر name مسیر نداری، موقتاً href="/price-form/" بگذار -->
-          <a class="nav-link" href="{% url 'carton_pricing:price_form' %}">فرم قیمت</a>
+          <a class="nav-link {% if url_name == 'price_form' %}active{% endif %}"
+             href="{% url 'carton_pricing:price_form' %}">
+            فرم قیمت
+          </a>
         </li>
 
         <!-- اطلاعات پایه -->
         <li class="nav-item">
-          <!-- اگر name مسیر نداری، موقتاً href="/base-settings/" بگذار -->
-          <a class="nav-link" href="{% url 'carton_pricing:base_settings' %}">اطلاعات پایه</a>
+          <a class="nav-link {% if url_name == 'base_settings' %}active{% endif %}"
+             href="{% url 'carton_pricing:base_settings' %}">
+            اطلاعات پایه
+          </a>
         </li>
 
         <!-- فرمول‌ها -->
         <li class="nav-item">
-          <!-- اگر لیست/مدیریت فرمول‌ها view جدا نداری، از مسیر فعلی‌ات /formulas/ استفاده کن -->
-          <a class="nav-link" href="{% url 'carton_pricing:formula_list' %}">فرمول‌ها</a>
+          <a class="nav-link {% if url_name == 'formulas' or url_name == 'formula_list' %}active{% endif %}"
+             href="{% url 'carton_pricing:formulas' %}">
+            فرمول‌ها
+          </a>
         </li>
 
-        <!-- تعاریف (Dropdown) -->
+        <!-- تعاریف -->
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="defsMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <a class="nav-link dropdown-toggle {% if url_name in 'paper_list paper_create paper_update group_list group_add group_update group_delete' %}active{% endif %}"
+             href="#" id="defsMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             تعاریف
           </a>
           <ul class="dropdown-menu" aria-labelledby="defsMenu">
             <!-- کاغذها -->
-            <li>
-              <a class="dropdown-item" href="{% url 'carton_pricing:paper_list' %}">کاغذها</a>
-            </li>
-            <li>
-              <a class="dropdown-item" href="{% url 'carton_pricing:paper_create' %}">+ کاغذ جدید</a>
-            </li>
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:paper_list' %}">کاغذها</a></li>
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:paper_create' %}">+ کاغذ جدید</a></li>
+
             <li><hr class="dropdown-divider"></li>
+
+            <!-- گروه کاغذ -->
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:group_list' %}">گروه‌های کاغذ</a></li>
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:group_add' %}">+ گروه جدید</a></li>
+ <li><a class="dropdown-item" href="{% url 'carton_pricing:group_bulk_price' %}">برورز رسانی قیمت یک گروه</a></li>
+            <li><hr class="dropdown-divider"></li>
+
             <!-- گام فلوت (فعلاً از ادمین) -->
-            <li>
-              <a class="dropdown-item" href="{% url 'admin:carton_pricing_flutestep_changelist' %}">گام فلوت</a>
-            </li>
+            <li><a class="dropdown-item" href="{% url 'admin:carton_pricing_flutestep_changelist' %}">گام فلوت</a></li>
           </ul>
         </li>
 
-        <!-- ادمین (اختیاری) -->
+        <!-- ادمین -->
         <li class="nav-item">
           <a class="nav-link" href="{% url 'admin:index' %}">مدیریت</a>
         </li>
-
       </ul>
     </div>
+    {% endwith %}
   </div>
 </nav>
 
-<div class="container">{% block content %}{% endblock %}</div>
+<div class="container">
 
+  {# پیام‌های Django messages اگر لازم داری اینجا رندر کن #}
+  {% if messages %}
+    <div class="mb-3">
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} mb-2" role="alert">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% block content %}{% endblock %}
+</div>
+
+<!-- Bootstrap Bundle (with Popper) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+{# Persian date/datepicker — اگر همهٔ صفحات لازم ندارند می‌تونی به صفحات خاص منتقل کنی #}
+{% block foot_vendor_js %}
+<script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />
+<script src="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/js/persian-datepicker.js"></script>
+{% endblock foot_vendor_js %}
+
+{% block foot_js %}{% endblock foot_js %}
 </body>
 </html>

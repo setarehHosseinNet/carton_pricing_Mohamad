@@ -1,0 +1,53 @@
+{# templates/papers/paper_form.html #}
+{% extends "base.html" %}
+
+{% block title %}{% if object %}ویرایش کاغذ{% else %}تعریف کاغذ جدید{% endif %}{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">{% if object %}ویرایش کاغذ{% else %}تعریف کاغذ جدید{% endif %}</h3>
+
+<form method="post" class="card card-body" novalidate>
+  {% csrf_token %}
+
+  {{ form.non_field_errors }}
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.name_paper.id_for_label }}">{{ form.name_paper.label }}</label>
+      {{ form.name_paper }}
+      {% for e in form.name_paper.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.group.id_for_label }}">{{ form.group.label }}</label>
+      {{ form.group }}
+      {% for e in form.group.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.grammage_gsm.id_for_label }}">{{ form.grammage_gsm.label }}</label>
+      {{ form.grammage_gsm }}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.width_cm.id_for_label }}">{{ form.width_cm.label }}</label>
+      {{ form.width_cm }}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.unit_price.id_for_label }}">{{ form.unit_price.label }}</label>
+      {{ form.unit_price }}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.unit_amount.id_for_label }}">{{ form.unit_amount.label }}</label>
+      {{ form.unit_amount }}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mt-3">
+    <button type="submit" class="btn btn-primary">ذخیره</button>
+    <a href="{% url 'carton_pricing:paper_list' %}" class="btn btn-secondary">بازگشت</a>
+  </div>
+</form>
+{% endblock %}

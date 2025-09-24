@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h3 class="mb-3">حذف گروه</h3>
+<div class="alert alert-warning">
+  آیا از حذف گروه <strong>{{ object.name }}</strong> مطمئن هستید؟
+  <div class="small text-muted mt-1">
+    اگر این گروه کاغذ دارد و ForeignKey روی PROTECT است، ابتدا باید کاغذها را حذف/منتقل کنید.
+  </div>
+</div>
+<form method="post">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger">بله، حذف شود</button>
+  <a href="{% url 'papers:group_list' %}" class="btn btn-secondary">انصراف</a>
+</form>
+{% endblock %}

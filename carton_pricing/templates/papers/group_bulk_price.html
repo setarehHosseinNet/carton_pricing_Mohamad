@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}به‌روزرسانی گروهی قیمت کاغذ{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">به‌روزرسانی گروهی قیمت کاغذ</h3>
+
+<form method="post" class="card card-body mb-3">
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.group.id_for_label }}">{{ form.group.label }}</label>
+      {{ form.group }}
+      {% for e in form.group.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.new_price.id_for_label }}">{{ form.new_price.label }}</label>
+      {{ form.new_price }}
+      {% for e in form.new_price.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mt-3">
+    <button type="submit" class="btn btn-success">اعمال قیمت</button>
+    <a class="btn btn-outline-secondary"
+       href="{% url 'carton_pricing:group_list' %}">بازگشت به گروه‌ها</a>
+  </div>
+</form>
+
+{% if selected_group %}
+  <div class="card">
+    <div class="card-header">
+      کاغذهای گروه «{{ selected_group.name }}»
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>نام کاغذ</th>
+            <th>گرماژ</th>
+            <th>عرض (cm)</th>
+            <th>قیمت فعلی</th>
+            <th>مقدار واحد</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in papers %}
+            <tr>
+              <td>{{ p.name_paper }}</td>
+              <td>{{ p.grammage_gsm|default:"—" }}</td>
+              <td>{{ p.width_cm|default:"—" }}</td>
+              <td>{{ p.unit_price|default:"—" }}</td>
+              <td>{{ p.unit_amount|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="text-center text-muted">کاغذی در این گروه ثبت نشده است.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

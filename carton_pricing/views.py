@@ -1139,42 +1139,34 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
 
 # carton_pricing/views_paper.py
 
+# carton_pricing/views.py  (یا هرجایی که paper_* قبلاً بود)
+from django.contrib import messages
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
+from .models import Paper
+from .forms import PaperForm
 
 def paper_list_view(request):
-    q = (request.GET.get("q") or "").strip()
-    qs = Paper.objects.all()
-    if q:
-        qs = qs.filter(Q(name_paper__icontains=q))
-    qs = qs.order_by("name_paper")
-
-    paginator = Paginator(qs, 20)
-    page = request.GET.get("page")
-    page_obj = paginator.get_page(page)
-
-    return render(request, "carton_pricing/paper_list.html", {
-        "page_obj": page_obj,
-        "q": q,
-    })
+    papers = Paper.objects.select_related("group").order_by("name_paper")
+    return render(request, "papers/paper_list.html", {"papers": papers})
 
 def paper_create_view(request):
-    if request.method == "POST":
-        form = PaperForm(request.POST)
-        if form.is_valid():
-            obj = form.save()
-            messages.success(request, f"کاغذ «{obj.name_paper}» با موفقیت ثبت شد.")
-            return redirect(reverse("carton_pricing:paper_list"))
-    else:
-        form = PaperForm()
-    return render(request, "carton_pricing/paper_form.html", {"form": form, "mode": "create"})
+    form = PaperForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "کاغذ جدید ذخیره شد.")
+        return redirect(reverse("carton_pricing:paper_list"))
+    return render(request, "papers/paper_form.html", {"form": form, "mode": "create"})
 
 def paper_update_view(request, pk: int):
     obj = get_object_or_404(Paper, pk=pk)
-    if request.method == "POST":
-        form = PaperForm(request.POST, instance=obj)
-        if form.is_valid():
-            obj = form.save()
-            messages.success(request, f"کاغذ «{obj.name_paper}» به‌روزرسانی شد.")
-            return redirect(reverse("carton_pricing:paper_list"))
-    else:
-        form = PaperForm(instance=obj)
-    return render(request, "carton_pricing/paper_form.html", {"form": form, "mode": "edit", "obj": obj})
+    form = PaperForm(request.POST or None, instance=obj)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "کاغذ به‌روزرسانی شد.")
+        return redirect(reverse("carton_pricing:paper_list"))
+    return render(request, "papers/paper_form.html", {"form": form, "mode": "update", "object": obj})
+
+
+
+

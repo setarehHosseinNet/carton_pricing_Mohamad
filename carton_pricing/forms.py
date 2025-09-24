@@ -5,31 +5,29 @@ from typing import Any
 
 from django import forms
 from django.core.exceptions import ValidationError
+from django.forms import inlineformset_factory
 
 from .models import (
-    Product,
-    Customer,
-    PhoneNumber,
-    BaseSettings,
-    FluteStep,
-    Paper,
-    CalcFormula,      # در صورت نیاز در ادمین/فرم جدا
-    PriceQuotation,
+    Product, Customer, PhoneNumber,
+    BaseSettings, FluteStep,
+    PaperGroup, Paper,
+    CalcFormula, PriceQuotation,
 )
 from .utils import _normalize_fixed_widths
 
 
-# ======================== اعداد فارسی/عربی → لاتین ========================
-
-# نگاشت ارقام و جداکننده‌های فارسی/عربی به لاتین
+# ============================================================================
+# ۱) نرمال‌سازی ارقام فارسی/عربی → لاتین برای کل فرم‌ها
+# ============================================================================
 _PERSIAN_MAP = str.maketrans(
-    "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٬،٫",
-    "01234567890123456789,,."
+    #  فارسی       عربی        جداکننده‌ها
+    "۰۱۲۳۴۵۶۷۸۹"  "٠١٢٣٤٥٦٧٨٩" "٬،٫",
+    "0123456789"  "0123456789" ",,."
 )
 
-class _NormalizeDigitsModelForm(forms.ModelForm):
+class NormalizeDigitsModelForm(forms.ModelForm):
     """
-    هر فرمی که از این ارث ببرد، هنگام مقداردهی، ورودی‌های متنی self.data
+    هر فرمی که از این کلاس ارث ببرد، در __init__ داده‌های متنی (self.data)
     را از ارقام فارسی/عربی به لاتین تبدیل می‌کند تا اعتبارسنجی عددی درست انجام شود.
     """
     def __init__(self, *args, **kwargs):
@@ -50,9 +48,10 @@ class _NormalizeDigitsModelForm(forms.ModelForm):
             data._mutable = was_mutable  # type: ignore[attr-defined]
 
 
-# ======================== فرم‌های ساده ========================
-
-class ProductForm(_NormalizeDigitsModelForm):
+# ============================================================================
+# ۲) فرم‌های ساده‌ی دامنه
+# ============================================================================
+class ProductForm(NormalizeDigitsModelForm):
     class Meta:
         model = Product
         fields = ["name", "code"]
@@ -63,7 +62,7 @@ class ProductForm(_NormalizeDigitsModelForm):
         }
 
 
-class CustomerForm(_NormalizeDigitsModelForm):
+class CustomerForm(NormalizeDigitsModelForm):
     class Meta:
         model = Customer
         fields = ["first_name", "last_name", "organization", "economic_no", "address", "favorite_products"]
@@ -85,7 +84,7 @@ class CustomerForm(_NormalizeDigitsModelForm):
         }
 
 
-class PhoneForm(_NormalizeDigitsModelForm):
+class PhoneForm(NormalizeDigitsModelForm):
     class Meta:
         model = PhoneNumber
         fields = ["customer", "label", "number"]
@@ -97,30 +96,7 @@ class PhoneForm(_NormalizeDigitsModelForm):
         }
 
 
-class PaperForm(_NormalizeDigitsModelForm):
-    """
-    اگر در مدل Paper فیلدهای بیشتری داری (گروه، گرماژ، عرض و ...)،
-    به‌تناسب اضافه کن. اینجا صرفاً name_paper را نگه داشتیم.
-    """
-    class Meta:
-        model = Paper
-        fields = ["name_paper"]
-        labels = {"name_paper": "نام کاغذ (Name_Paper)"}
-        help_texts = {"name_paper": "مثال: «Kraft 140g عرض 120» یا «Testliner 125g»"}
-        widgets = {
-            "name_paper": forms.TextInput(
-                attrs={"class": "form-control", "placeholder": "نام یکتا…", "autofocus": "autofocus"}
-            )
-        }
-
-    def clean_name_paper(self) -> str:
-        name = (self.cleaned_data.get("name_paper") or "").strip()
-        if not name:
-            raise ValidationError("نام کاغذ الزامی است.")
-        return name
-
-
-class FluteStepForm(_NormalizeDigitsModelForm):
+class FluteStepForm(NormalizeDigitsModelForm):
     class Meta:
         model = FluteStep
         fields = ["key"]
@@ -128,7 +104,7 @@ class FluteStepForm(_NormalizeDigitsModelForm):
         widgets = {"key": forms.Select(attrs={"class": "form-select"})}
 
 
-class CalcFormulaForm(_NormalizeDigitsModelForm):
+class CalcFormulaForm(NormalizeDigitsModelForm):
     class Meta:
         model = CalcFormula
         fields = ["key", "expression", "description"]
@@ -140,9 +116,10 @@ class CalcFormulaForm(_NormalizeDigitsModelForm):
         }
 
 
-# ======================== BaseSettings ========================
-
-class BaseSettingsForm(_NormalizeDigitsModelForm):
+# ============================================================================
+# ۳) تنظیمات پایه
+# ============================================================================
+class BaseSettingsForm(NormalizeDigitsModelForm):
     class Meta:
         model = BaseSettings
         fields = [
@@ -156,27 +133,27 @@ class BaseSettingsForm(_NormalizeDigitsModelForm):
             "fixed_widths",
         ]
         labels = {
-            "overhead_per_meter": "هزینه سربار هر متر (M30)",
+            "overhead_per_meter": "هزینهٔ سربار هر متر (M30)",
             "sheet_price_cash": "فی ورق نقد (M31)",
             "sheet_price_credit": "فی ورق مدت (M33)",
             "profit_rate_percent": "نرخ سود ٪ (I41)",
-            "shipping_cost": "کرایه حمل (E43)",
-            "pallet_cost": "هزینه پالت‌بندی (H43)",
-            "interface_cost": "هزینه رابط (J43)",
+            "shipping_cost": "کرایهٔ حمل (E43)",
+            "pallet_cost": "هزینهٔ پالت‌بندی (H43)",
+            "interface_cost": "هزینهٔ رابط (J43)",
             "fixed_widths": "عرض‌های ثابت ورق (cm)",
         }
         widgets = {
-            "overhead_per_meter": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
-            "sheet_price_cash": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
-            "sheet_price_credit": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "overhead_per_meter":  forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "sheet_price_cash":    forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "sheet_price_credit":  forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
             "profit_rate_percent": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
-            "shipping_cost": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
-            "pallet_cost": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
-            "interface_cost": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "shipping_cost":       forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "pallet_cost":         forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "interface_cost":      forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
             "fixed_widths": forms.TextInput(
                 attrs={
                     "class": "form-control",
-                    "placeholder": "مثل: 80,90,100,110,120,125,140 یا [80, 90, 100]",
+                    "placeholder": "مثال: 80,90,100,110,120,125,140 یا [80, 90, 100]",
                     "dir": "ltr",
                 }
             ),
@@ -184,43 +161,91 @@ class BaseSettingsForm(_NormalizeDigitsModelForm):
 
     def clean_fixed_widths(self) -> list[float]:
         """
-        ورودی می‌تواند list/tuple یا رشته (JSON/CSV/space) باشد.
-        خروجی: لیست یکتای مرتب از اعداد مثبت.
+        ورودی می‌تواند list/tuple یا رشته (CSV/JSON/space) باشد.
+        خروجی: لیست مرتب و یکتا از اعداد مثبت.
         """
         raw: Any = self.cleaned_data.get("fixed_widths")
-        values = _normalize_fixed_widths(
+        return _normalize_fixed_widths(
             raw, dedupe=True, sort_result=True, min_value=1.0, precision=0
         )
-        return values
 
 
-# ======================== فرم قیمت ========================
+# ============================================================================
+# ۴) کاغذ و گروه کاغذ
+# ============================================================================
+class PaperGroupForm(NormalizeDigitsModelForm):
+    class Meta:
+        model = PaperGroup
+        fields = ["name"]
+        labels = {"name": "نام گروه"}
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control", "placeholder": "مثلاً: کرافت‌ها"}),
+        }
 
-class PriceForm(_NormalizeDigitsModelForm):
+
+class PaperForm(NormalizeDigitsModelForm):
+    """فرم واحد کاغذ (برای CRUD مستقل و همچنین درون فرم‌ست گروه)."""
+    class Meta:
+        model = Paper
+        fields = ["name_paper", "group", "grammage_gsm", "width_cm", "unit_price", "unit_amount"]
+        labels = {
+            "name_paper": "نام کاغذ",
+            "group": "گروه",
+            "grammage_gsm": "گرماژ (gsm)",
+            "width_cm": "عرض (cm)",
+            "unit_price": "قیمت واحد",
+            "unit_amount": "مقدار واحد",
+        }
+        widgets = {
+            "name_paper":  forms.TextInput(attrs={"class": "form-control", "placeholder": "Kraft 140"}),
+            "group":       forms.Select(attrs={"class": "form-select"}),
+            "grammage_gsm":forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": 1}),
+            "width_cm":    forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "unit_price":  forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "unit_amount": forms.TextInput(attrs={"class": "form-control", "placeholder": "1 m²"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # برای UX بهتر: گروه‌ها را مرتب و گزینهٔ خالی بگذار
+        self.fields["group"].queryset = PaperGroup.objects.order_by("name")
+        self.fields["group"].empty_label = "— انتخاب گروه —"
+
+    def clean_name_paper(self) -> str:
+        name = (self.cleaned_data.get("name_paper") or "").strip()
+        if not name:
+            raise ValidationError("نام کاغذ الزامی است.")
+        return name
+
+
+# فرم‌ست کاغذها داخل صفحهٔ گروه کاغذ
+PaperFormSet = inlineformset_factory(
+    parent_model=PaperGroup,
+    model=Paper,
+    form=PaperForm,
+    fields=["name_paper", "group", "grammage_gsm", "width_cm", "unit_price", "unit_amount"],
+    extra=1,         # یک ردیف خالی ابتدایی
+    can_delete=True,
+)
+
+
+# ============================================================================
+# ۵) فرم اصلی برگه قیمت
+# ============================================================================
+class PriceForm(NormalizeDigitsModelForm):
     """
-    فرم اصلی برگه قیمت.
-    - save_record فقط برای UI است.
-    - has_print_notes در مدل رشته‌ای ('yes'/'no') است؛ اینجا به صورت چک‌باکس بولی است.
-    - «open_bottom_door» یک فیلدِ فقط-فرم (غیرمدلی) است تا کنار «E17_lip» (لب درب بالا)
-      جمع زده شود. برای مصرف در ویو، مقدار جمع در cleaned_data با کلید 'E17_total' قرار می‌گیرد.
+    - فیلد «open_bottom_door» فقط-فرم است و در مدل ذخیره نمی‌شود.
+    - چک‌باکس «has_print_notes_bool» به رشته‌ی 'yes'/'no' روی مدل نگاشت می‌شود.
+    - جمعِ لب‌ها در cleaned_data با کلید 'E17_total' قرار می‌گیرد (برای مصرف در ویو).
     """
-
-    # کنترل ذخیره‌ی رکورد بعد از محاسبه
     save_record = forms.BooleanField(
         required=False, initial=False, label="ذخیرهٔ برگه قیمت بعد از محاسبه؟"
     )
-
-    # چک‌باکس بولی برای پرچم چاپ/نکات تبدیل
     has_print_notes_bool = forms.BooleanField(
         required=False, initial=False, label="چاپ و نکات تبدیل"
     )
-
-    # فیلدِ فقط-فرم: درب باز پایین (سانتی‌متر)
     open_bottom_door = forms.DecimalField(
-        required=False,
-        min_value=0,
-        max_digits=6,
-        decimal_places=2,
+        required=False, min_value=0, max_digits=6, decimal_places=2,
         label="درب باز پایین (cm)",
         widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "id": "id_open_bottom_door"}),
     )
@@ -228,21 +253,20 @@ class PriceForm(_NormalizeDigitsModelForm):
     class Meta:
         model = PriceQuotation
         fields = [
-            # اطلاعات پایه
+            # اطلاعات پایه/سربرگ
             "customer", "contact_phone", "prepared_by",
-            "product_code", "carton_type", "carton_name",
-            "description",
+            "product_code", "carton_type", "carton_name", "description",
 
             # پارامترها
             "I8_qty",
             "A1_layers", "A2_pieces", "A3_door_type", "A4_door_count",
             "E15_len", "G15_wid", "I15_hgt",
-            "E17_lip",               # لب درب بالا (مدلی)
+            "E17_lip",
             "D31_flute",
             "payment_type",
             "E46_round_adjust",
 
-            # انتخاب کاغذها (مستقل از گام فلوت)
+            # انتخاب کاغذها
             "pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer",
         ]
         labels = {
@@ -253,23 +277,18 @@ class PriceForm(_NormalizeDigitsModelForm):
             "carton_type": "نوع کارتن",
             "carton_name": "نام کارتن",
             "description": "توضیحات",
-
             "I8_qty": "تیراژ کارتن (I8)",
-
             "A1_layers": "چند لایه (A1)",
             "A2_pieces": "چند تیکه (A2)",
             "A3_door_type": "نوع درب (A3)",
             "A4_door_count": "تعداد درب (A4)",
-
             "E15_len": "طول (E15, cm)",
             "G15_wid": "عرض (G15, cm)",
             "I15_hgt": "ارتفاع (I15, cm)",
-
             "E17_lip": "لب درب بالا (E17, cm)",
             "D31_flute": "گام فلوت (D31)",
             "payment_type": "تسویه فاکتور",
-            "E46_round_adjust": "جهت رند کردن (E46)",
-
+            "E46_round_adjust": "جهت رُند کردن (E46)",
             "pq_glue_machine": "چسبان",
             "pq_be_flute": "B/E فلوت",
             "pq_middle_layer": "لاینر میانی",
@@ -297,9 +316,7 @@ class PriceForm(_NormalizeDigitsModelForm):
             "G15_wid": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
             "I15_hgt": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
 
-            "E17_lip": forms.NumberInput(
-                attrs={"class": "form-control", "step": "0.01", "id": "id_E17_lip"}
-            ),
+            "E17_lip": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "id": "id_E17_lip"}),
 
             "D31_flute": forms.Select(attrs={"class": "form-select"}),
             "payment_type": forms.Select(attrs={"class": "form-select"}),
@@ -313,24 +330,24 @@ class PriceForm(_NormalizeDigitsModelForm):
             "pq_bottom_layer": forms.Select(attrs={"class": "form-select"}),
         }
 
-    # ----------------- init & helpers -----------------
+    # ---------- init ----------
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # لیست کاغذها برای 5 ستون مستقل
-        qs = Paper.objects.all().order_by("name_paper")
+        # فهرست کاغذها برای تمام ستون‌ها (مرتب)
+        qs = Paper.objects.order_by("name_paper")
         for fld in ("pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer"):
             self.fields[fld].queryset = qs
 
-        # مقدار اولیهٔ چک‌باکس چاپ از مدل
+        # مقدار ابتدایی چک‌باکس چاپ
         if self.instance and getattr(self.instance, "has_print_notes", None):
             self.initial["has_print_notes_bool"] = (self.instance.has_print_notes == "yes")
 
-        # این دو فیلد به‌صورت پیش‌فرض اختیاری هستند
+        # دو فیلد لب درب به‌صورت پیش‌فرض اختیاری باشند
         self.fields["E17_lip"].required = False
         self.fields["open_bottom_door"].required = False
 
-    # ----------------- validation -----------------
+    # ---------- validation ----------
     def clean_E17_lip(self):
         v = self.cleaned_data.get("E17_lip")
         if v is not None and v < 0:
@@ -345,29 +362,36 @@ class PriceForm(_NormalizeDigitsModelForm):
 
     def clean(self):
         cleaned = super().clean()
-
-        # نگاشت چک‌باکس به مقدار رشته‌ای مدل
+        # نگاشت چک‌باکس به رشتهٔ مدل
         cleaned["has_print_notes"] = "yes" if cleaned.get("has_print_notes_bool") else "no"
 
-        # جمع لب‌ها برای مصرف ویو: E17_total = بالا + پایین
+        # جمع لب‌ها: برای مصرف ویو
         e17_up = cleaned.get("E17_lip") or 0
         e17_down = cleaned.get("open_bottom_door") or 0
         try:
             cleaned["E17_total"] = (e17_up or 0) + (e17_down or 0)
         except Exception:
-            cleaned["E17_total"] = e17_up or 0  # در صورت خطا فقط بالایی
-
+            cleaned["E17_total"] = e17_up or 0
         return cleaned
 
-    # ----------------- save -----------------
+    # ---------- save ----------
     def save(self, commit: bool = True) -> PriceQuotation:
-        """
-        ensure: مقدار رشته‌ای has_print_notes در مدل با چک‌باکس هم‌راستا شود.
-        توجه: «open_bottom_door» فیلد مدلی نیست و ذخیره نمی‌شود.
-        """
         obj: PriceQuotation = super().save(commit=False)
         obj.has_print_notes = "yes" if self.cleaned_data.get("has_print_notes_bool") else "no"
         if commit:
             obj.save()
             self.save_m2m()
         return obj
+
+
+class GroupPriceUpdateForm(forms.Form):
+    group = forms.ModelChoiceField(
+        queryset=PaperGroup.objects.order_by("name"),
+        label="گروه کاغذ",
+        widget=forms.Select(attrs={"class": "form-select"})
+    )
+    new_price = forms.DecimalField(
+        max_digits=12, decimal_places=2, min_value=0,
+        label="قیمت واحد جدید",
+        widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01"})
+    )
