@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="btn-group">
+    <a class="btn btn-secondary" href="{% url 'carton_pricing:customer_list' %}">بازگشت</a>
+    <a class="btn btn-success" href="{% url 'carton_pricing:price_form' %}?customer={{ customer.pk }}">
+      + فاکتور جدید
+    </a>
+  </div>
+  <h3 class="mb-0">فاکتورهای {{ customer }}</h3>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-striped align-middle mb-0">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>تاریخ</th>
+          <th>کد محصول</th>
+          <th class="text-end">مبلغ با مالیات</th>
+          <th class="text-end">عملیات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in invoices %}
+          <tr>
+            <td>{{ q.id }}</td>
+            <td dir="ltr">{{ q.created|date:"Y-m-d H:i" }}</td>
+            <td>{{ q.product_code|default:"—" }}</td>
+            <td class="text-end">{{ q.E48_price_with_tax|default:"—" }}</td>
+            <td class="text-end d-flex gap-2 justify-content-end">
+              <a class="btn btn-sm btn-outline-secondary"
+                 href="{% url 'admin:carton_pricing_pricequotation_change' q.pk %}">
+                مشاهده/ویرایش
+              </a>
+              <a class="btn btn-sm btn-outline-primary"
+                 href="{% url 'carton_pricing:price_form' %}?copy_from={{ q.pk }}&customer={{ customer.pk }}">
+                کپی سفارش و ایجاد سفارش جدید
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="text-center text-muted">فاکتوری برای این مشتری ثبت نشده است.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if is_paginated %}
+  <nav class="mt-3">
+    <ul class="pagination">
+      {% if page_obj.has_previous %}
+        <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">قبلی</a></li>
+      {% endif %}
+      <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
+      {% if page_obj.has_next %}
+        <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">بعدی</a></li>
+      {% endif %}
+    </ul>
+  </nav>
+{% endif %}
+{% endblock %}

@@ -152,8 +152,7 @@ class BaseSettings(TimeStamped):
 # ------------------------- Paper & Flute -------------------------
 # apps/carton_pricing/models.py
 from django.db import models
-from django.core.validators import MinValueValidator
-from django.utils.translation import gettext_lazy as _
+
 
 # models.py
 class PaperGroup(TimeStamped):

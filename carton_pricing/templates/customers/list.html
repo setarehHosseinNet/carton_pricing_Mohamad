@@ -1,0 +1,45 @@
+{# templates/customers/customer_list.html #}
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">مشتری‌ها</h3>
+  <a class="btn btn-primary" href="{% url 'carton_pricing:customer_create' %}">+ مشتری جدید</a>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th>نام</th>
+          <th>مجموعه/شرکت</th>
+          <th>شماره اقتصادی</th>
+          <th>آدرس</th>
+          <th class="text-end">عملیات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in customers %}
+          <tr>
+            <td>{{ c.first_name }} {{ c.last_name }}</td>
+            <td>{{ c.organization|default:"—" }}</td>
+            <td>{{ c.economic_no|default:"—" }}</td>
+            <td>{{ c.address|default:"—" }}</td>
+            <td class="text-end">
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'carton_pricing:customer_update' c.pk %}">ویرایش</a>
+              <a class="btn btn-sm btn-outline-primary" href="{% url 'carton_pricing:customer_invoices' c.pk %}">
+                مشاهده فاکتورها
+              </a>
+              {# اختیاری: ساخت فاکتور جدید با پیش‌انتخاب مشتری در فرم قیمت #}
+              {# <a class="btn btn-sm btn-success" href="{% url 'carton_pricing:price_form' %}?customer={{ c.pk }}">فاکتور جدید</a> #}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="text-center text-muted">هنوز مشتری ثبت نشده.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

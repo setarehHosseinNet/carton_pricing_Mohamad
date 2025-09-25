@@ -884,86 +884,280 @@ class TableBuilder:
 
 # =============================== ویوی باریک‌شده (Orchestrator) ===============================
 
+
+
+# views.py  (بازنویسی کامل ویو)
+from decimal import Decimal
+import math
+from typing import Any, Dict, Optional
+
+from django.contrib import messages
+from django.db import transaction
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
+from django.utils import timezone
+
+try:
+    import jdatetime  # برای تاریخ شمسی
+except Exception:  # pragma: no cover
+    jdatetime = None
+
+from .forms import PriceForm
+from .models import PriceQuotation, CalcFormula
+# from .utils import (
+#     SettingsLoader,
+#     as_num, as_num_or_none, q2,
+#     Env, FormulaEngine,
+#     E17Calculator, K15Calculator, RowCalcs, TableBuilder, TableRow,
+# )
+
+# نام چک‌باکس‌های «موارد انتخابی» که می‌خواهیم از سفارش مبدأ در initial ست شوند
+FLAG_FIELD_NAMES = [
+    "flag_customer_dims",
+    "flag_customer_sample",
+    "flag_sample_dims",
+    "flag_new_cliche",
+    "flag_staple",
+    "flag_handle_slot",
+    "flag_punch",
+    "flag_pallet_wrap",
+    "flag_shipping_not_seller",
+]
+
+
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
     مرحله‌ای:
       s1   : گرفتن A1..A4 و E15,G15,I15 ⇒ ساخت جدول (انتخاب | M24 | F24 | I22 | E28)
       final: بعد از انتخاب ردیف ⇒ محاسبات نهایی و نگاشت به مدل
+
+    نکات:
+    - «نام مشتری» و «شماره تماس» از روی سفارش انتخاب‌شده (copy_from) قفل می‌شوند
+      و به‌صورت Hidden ارسال می‌گردند (در قالب، لیبل نمایش دهید).
+    - تاریخ‌های شمسی و اطلاعات آخرین سفارش مشتری در کانتکست گذاشته می‌شود.
     """
-    # --- settings & context ---
+    # ───────────── 0) Settings & Context ─────────────
     bs = SettingsLoader.load_latest()
     ctx: Dict[str, Any] = {"settings": bs}
 
-    # --- GET: فرم خالی با پیش‌فرض‌ها ---
-    if request.method != "POST":
-        form = PriceForm(
-            initial={
-                "A1_layers": 1,
-                "A2_pieces": 1,
-                "A3_door_type": 1,
-                "A4_door_count": 1,
-                "payment_type": "cash",
-                "has_print_notes": False,
-                "tech_shipping_on_customer": False,
+    # شناسه‌ی سفارشی که باید از روی آن «کپی» شود (از GET یا POST)
+    copy_from = (request.GET.get("copy_from") or request.POST.get("copy_from") or "").strip()
+
+    # ───────────── helpers ─────────────
+    def _truthy(v: Any) -> bool:
+        return str(v).strip().lower() in {"1", "true", "t", "y", "yes", "on"}
+
+    def _to_jalali(dt) -> str:
+        if not dt:
+            return "—"
+        try:
+            dt = timezone.localtime(dt)
+        except Exception:
+            pass
+        if jdatetime:
+            try:
+                jd = jdatetime.datetime.fromgregorian(datetime=dt)
+                return jd.strftime("%Y/%m/%d")
+            except Exception:
+                return dt.strftime("%Y-%m-%d")
+        return dt.strftime("%Y-%m-%d")
+
+    def _today_jalali() -> str:
+        if jdatetime:
+            try:
+                return jdatetime.datetime.now().strftime("%Y/%m/%d")
+            except Exception:
+                return timezone.localtime().strftime("%Y-%m-%d")
+        return timezone.localtime().strftime("%Y-%m-%d")
+
+    def _initial_from_order(src: PriceQuotation) -> dict:
+        """Initial کامل فرم بر اساس یک سفارش موجود (به‌علاوه‌ی فلگ‌ها)."""
+        data = {
+            # سربرگ
+            "customer":        src.customer_id,
+            "contact_phone":   src.contact_phone,
+            "prepared_by":     src.prepared_by,
+            "product_code":    src.product_code,
+            "carton_type":     src.carton_type,
+            "carton_name":     src.carton_name,
+            "description":     src.description,
+            "payment_type":    src.payment_type,
+            # پارامترها
+            "I8_qty":            src.I8_qty or 1,
+            "A1_layers":         src.A1_layers,
+            "A2_pieces":         src.A2_pieces,
+            "A3_door_type":      src.A3_door_type,
+            "A4_door_count":     src.A4_door_count,
+            "E15_len":           src.E15_len,
+            "G15_wid":           src.G15_wid,
+            "I15_hgt":           src.I15_hgt,
+            "E17_lip":           src.E17_lip,
+            "D31_flute":         src.D31_flute,
+            "E46_round_adjust":  src.E46_round_adjust,
+            # انتخاب کاغذها
+            "pq_glue_machine": src.pq_glue_machine_id,
+            "pq_be_flute":     src.pq_be_flute_id,
+            "pq_middle_layer": src.pq_middle_layer_id,
+            "pq_c_flute":      src.pq_c_flute_id,
+            "pq_bottom_layer": src.pq_bottom_layer_id,
+        }
+        # فلگ‌های موردی (اگر روی مدل وجود دارند)
+        for name in FLAG_FIELD_NAMES:
+            if hasattr(src, name):
+                data[name] = _truthy(getattr(src, name))
+        # چک‌باکس چاپ/نکات تبدیل (اگر دارید)
+        if hasattr(src, "has_print_notes"):
+            data["has_print_notes_bool"] = _truthy(getattr(src, "has_print_notes"))
+        return data
+
+    def _build_form(initial: dict | None = None) -> PriceForm:
+        """
+        سازنده‌ی فرم؛ در POST هم initial تزریق می‌شود تا Hiddenها مقدار بگیرند.
+        """
+        f = PriceForm(request.POST, initial=initial) if request.method == "POST" else PriceForm(initial=initial)
+        if "E17_lip" in f.fields:
+            f.fields["E17_lip"].required = False
+        if "open_bottom_door" in f.fields:
+            f.fields["open_bottom_door"].required = False
+        return f
+
+    def _settlement_from_post() -> str:
+        pay = (request.POST.get("settlement") or request.POST.get("payment_type") or "cash").strip().lower()
+        return "credit" if pay == "credit" else "cash"
+
+    def _seed_vars(cd: dict) -> dict[str, Any]:
+        """ورودی‌های خام فرم ⇒ env اولیه برای موتور فرمول‌ها."""
+        v: dict[str, Any] = {
+            "A1": int(cd.get("A1_layers") or 0),
+            "A2": int(cd.get("A2_pieces") or 0),
+            "A3": int(cd.get("A3_door_type") or 0),
+            "A4": int(cd.get("A4_door_count") or 0),
+            "E15": as_num(cd.get("E15_len") or request.POST.get("E15_len"), 0.0),
+            "G15": as_num(cd.get("G15_wid") or request.POST.get("G15_wid"), 0.0),
+            "I15": as_num(cd.get("I15_hgt") or request.POST.get("I15_hgt"), 0.0),
+            "I8":  as_num(cd.get("I8_qty"), 0.0),
+            "E46": as_num(cd.get("E46_round_adjust"), 0.0),
+            "E17": as_num(cd.get("E17_lip"), 0.0),  # seed موقت؛ پایین‌تر بازنویسی می‌شود
+        }
+        a6_str = f'{v["A1"]}{v["A2"]}{v["A3"]}{v["A4"]}'
+        v["A6"] = int(a6_str) if a6_str.isdigit() else 0
+        ctx["a6"] = a6_str
+        return v
+
+    # اگر «کپی از سفارش» داریم، initial قفل برای customer/phone + پیش‌فرض فلگ‌ها آماده کن
+    lock_initial: dict | None = None
+    src_order: Optional[PriceQuotation] = None
+    if copy_from.isdigit():
+        src_order = PriceQuotation.objects.filter(pk=int(copy_from)).first()
+        if src_order:
+            lock_initial = {
+                "customer": src_order.customer_id,
+                "contact_phone": src_order.contact_phone,
             }
+
+    # داده‌های آخرین سفارش مشتری (برای نمایش)
+    def _fill_last_order_context(customer_id: Optional[int]):
+        ctx["today_jalali"] = _today_jalali()
+        ctx["last_order_date_jalali"] = "—"
+        ctx["last_order_fee"] = "—"
+        ctx["last_order_price"] = "—"
+        if not customer_id:
+            return
+        last = (
+            PriceQuotation.objects
+            .filter(customer_id=customer_id)
+            .order_by("-id")  # ساده‌ترین معیار «آخرین»
+            .first()
         )
-        # E17 و درب باز پایین را در ویو مدیریت می‌کنیم
-        form.fields["E17_lip"].required = False
-        if "open_bottom_door" in form.fields:
-            form.fields["open_bottom_door"].required = False
-        ctx.update({"form": form, "ui_stage": "s1", "show_table": False, "show_papers": False})
+        if not last:
+            return
+        # تاریخ آخرین سفارش به شمسی
+        # سعی می‌کنیم یکی از فیلدهای زمانی را پیدا کنیم
+        last_dt = None
+        for fname in ("created", "created_at", "created_on", "timestamp", "created_datetime"):
+            if hasattr(last, fname):
+                last_dt = getattr(last, fname)
+                if last_dt:
+                    break
+        ctx["last_order_date_jalali"] = _to_jalali(last_dt)
+        # فی و نرخ
+        fee = getattr(last, "Fee_amount", None)
+        price = getattr(last, "E48_price_with_tax", None) or getattr(last, "H46_price_before_tax", None)
+        if fee is not None:
+            ctx["last_order_fee"] = fee
+        if price is not None:
+            ctx["last_order_price"] = price
+
+    # ───────────── 1) GET: فرم (با کپی از سفارش در صورت وجود) ─────────────
+    if request.method != "POST":
+        initial: dict = {
+            "A1_layers": 1, "A2_pieces": 1, "A3_door_type": 1, "A4_door_count": 1,
+            "payment_type": "cash",
+            "has_print_notes": False,
+            "tech_shipping_on_customer": False,
+        }
+        if src_order:
+            initial.update(_initial_from_order(src_order))
+        if lock_initial:
+            initial.update(lock_initial)
+
+        form = _build_form(initial=initial)
+
+        # پر کردن کانتکست تاریخ‌ها و آخرین سفارش
+        _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
+
+        ctx.update({
+            "form": form,
+            "ui_stage": "s1",
+            "show_table": False,
+            "show_papers": False,
+            # نمایش نام مشتری و شماره قفل‌شده در UI
+            "locked_customer": getattr(form, "display_customer", None),
+            "locked_phone": form.initial.get("contact_phone") or "",
+            "copy_from": copy_from,
+        })
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # --- POST: جمع‌آوری ورودی‌ها ---
+    # ───────────── 2) POST: ساخت فرم + اعتبارسنجی ─────────────
     stage = (request.POST.get("stage") or "s1").strip().lower()
-    form = PriceForm(request.POST)
-    form.fields["E17_lip"].required = False
-    if "open_bottom_door" in form.fields:
-        form.fields["open_bottom_door"].required = False
-    ctx["form"] = form
+
+    form = _build_form(initial=lock_initial)
+    ctx.update({
+        "form": form,
+        "locked_customer": getattr(form, "display_customer", None),
+        "locked_phone": form.initial.get("contact_phone") or "",
+        "copy_from": copy_from,
+    })
     if not form.is_valid():
+        # تاریخ‌ها حتی در خطا هم نمایش داده شود
+        _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
         ctx["errors"] = form.errors
         return render(request, "carton_pricing/price_form.html", ctx)
 
     cd = form.cleaned_data
     obj: PriceQuotation = form.save(commit=False)
 
-    # --- settlement ---
-    settlement = (
-        "credit"
-        if (request.POST.get("settlement") or cd.get("payment_type") or "cash").strip().lower() == "credit"
-        else "cash"
-    )
+    # تحمیل قفل‌ها (در برابر POST دستکاری‌شده)
+    if lock_initial:
+        if lock_initial.get("customer"):
+            obj.customer_id = lock_initial["customer"]
+        if "contact_phone" in lock_initial:
+            obj.contact_phone = lock_initial["contact_phone"]
+
+    # ───────────── 3) env اولیه + تزریق تنظیمات ─────────────
+    settlement = _settlement_from_post()
     ctx["settlement"] = settlement
     ctx["credit_days"] = int(as_num(request.POST.get("credit_days"), 0))
 
-    # --- seed vars از فرم ---
-    var: Dict[str, Any] = {
-        "A1": int(cd.get("A1_layers") or 0),
-        "A2": int(cd.get("A2_pieces") or 0),
-        "A3": int(cd.get("A3_door_type") or 0),
-        "A4": int(cd.get("A4_door_count") or 0),
-        "E15": as_num(cd.get("E15_len") or request.POST.get("E15_len"), 0.0),
-        "G15": as_num(cd.get("G15_wid") or request.POST.get("G15_wid"), 0.0),
-        "I15": as_num(cd.get("I15_hgt") or request.POST.get("I15_hgt"), 0.0),
-        "I8":  as_num(cd.get("I8_qty"), 0.0),
-        "E46": as_num(cd.get("E46_round_adjust"), 0.0),
-        "E17": as_num(cd.get("E17_lip"), 0.0),  # seed اولیه؛ پایین‌تر بازنویسی می‌شود
-    }
-    a6_str = f'{var["A1"]}{var["A2"]}{var["A3"]}{var["A4"]}'
-    var["A6"] = int(a6_str) if a6_str.isdigit() else 0
-    ctx["a6"] = a6_str
+    var: dict[str, Any] = _seed_vars(cd)
     obj.A6_sheet_code = var["A6"]
-
-    # --- تزریق تنظیمات ---
     SettingsLoader.inject(bs, settlement, var, cd)
 
-    # --- ساخت موتور فرمول ---
+    # ───────────── 4) موتور فرمول ─────────────
     formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormula.objects.all()}
-    env = Env(var=var, formulas_raw=formulas_raw)
-    eng = FormulaEngine(env)
+    eng = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))
 
-    # --- E17 طبق قوانین شما ---
+    # ───────────── 5) محاسبۀ E17 ─────────────
     tail = (var["A6"] % 100) if var["A6"] else 0
     var["E17"] = E17Calculator.compute(
         tail=tail,
@@ -974,32 +1168,27 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         form=form,
     )
     try:
-        obj.E17_lip = q2(var["E17"], "0.01")  # برای اطمینان از نال نبودن در مدل
+        obj.E17_lip = q2(var["E17"], "0.01")
     except Exception:
         pass
 
-    # --- I17 و K15 ---
-    # I17: از فرمول DB یا fallback ساده
+    # ───────────── 6) I17 و K15 (با fallback) ─────────────
     eng = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))  # rebuild با E17 جدید
-    i17_db = eng.get("I17")
-    var["I17"] = as_num(i17_db, as_num(var.get("E15"), 0.0) + as_num(var.get("G15"), 0.0) + 3.5)
+    var["I17"] = as_num(eng.get("I17"), as_num(var.get("E15"), 0.0) + as_num(var.get("G15"), 0.0) + 3.5)
 
-    # K15 با fallback و clamp
     fixed_widths = bs.fixed_widths or [80, 90, 100, 110, 120, 125, 140]
     var["K15"] = K15Calculator.compute(eng=eng, tail=tail, var=var, fixed_widths=fixed_widths)
 
-    # --- پیش‌نمایش E20/K20 برای کارت بالای جدول ---
+    # ───────────── 7) پیش‌نمایش E20/K20 ─────────────
     e20_preview = RowCalcs.e20_row(var, eng)
-    k20_preview = as_num(eng.get("K20"), 0.0)
-    if k20_preview <= 0:
-        # اگر فرمول K20 نداشتیم، K20 = F24*K15 بر مبنای اولین سطر جدول محاسبه می‌شود (پایین‌تر)
-        k20_preview = 0.0
+    k20_preview = as_num(eng.get("K20"), 0.0) or 0.0
 
-    # --- ساخت جدول مرحله ۱ ---
-    rows = TableBuilder.build_rows(k15=float(var["K15"]), widths=fixed_widths, env_base=var, eng=eng)
-    ctx["best_by_width"] = [r.__dict__ for r in rows]  # برای template
+    # ───────────── 8) جدول مرحله ۱ ─────────────
+    rows: list[TableRow] = TableBuilder.build_rows(
+        k15=float(var["K15"]), widths=fixed_widths, env_base=var, eng=eng
+    )
+    ctx["best_by_width"] = [r.__dict__ for r in rows]
 
-    # اگر K20 قبلاً صفر بود، حالا با f24 اولین ردیف پر کن
     if k20_preview <= 0 and rows:
         k20_preview = as_num(var.get("K15"), 0.0) * float(rows[0].f24)
 
@@ -1009,17 +1198,17 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         "K20": q2(as_num(k20_preview, 0.0), "0.01"),
     }
 
-    # --- فقط نمایش جدول مرحله ۱ ---
+    # تاریخ‌ها و آخرین سفارش برای نمایش در همین مرحله
+    _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
+
+    # ───────────── 9) نمایش مرحله ۱ ─────────────
     if stage != "final":
-        # اگر در حالت «درب باز» هستید و یکی از لب‌ها خالی‌ست، همین‌جا خطا را نشان بده
         if form.errors:
             ctx["errors"] = form.errors
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # =================== مرحله ۲: انتخاب ردیف و محاسبۀ نهایی ===================
-
-    # انتخاب ردیف
+    # ───────────── 10) مرحله ۲: انتخاب ردیف ─────────────
     picked_raw = (request.POST.get("sheet_choice") or "").strip()
     chosen: Optional[TableRow] = None
     w_try = as_num_or_none(picked_raw)
@@ -1032,32 +1221,30 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # قفل انتخاب به محیط فرمول
+    # قفل انتخاب در env
     var["M24"] = float(chosen.sheet_width)
     var["sheet_width"] = float(chosen.sheet_width)
     var["F24"] = float(max(1, int(chosen.f24)))
     var["I22"] = float(chosen.I22 or 0.0)
     var["E28"] = float(chosen.E28 or 0.0)
 
-    # نگاشت‌های مستقیم به مدل
-    obj.chosen_sheet_width = q2(var["M24"], "0.01")
+    # نگاشت مستقیم به مدل
+    obj.chosen_sheet_width  = q2(var["M24"], "0.01")
     obj.F24_per_sheet_count = int(var["F24"])
-    obj.waste_warning = bool((chosen.I22 is not None) and chosen.I22 >= 11.0)
-    obj.note_message = ""
+    obj.waste_warning       = bool((chosen.I22 is not None) and chosen.I22 >= 11.0)
+    obj.note_message        = ""
 
-    # rebuild نهایی موتور فرمول با مقادیر قفل‌شده
+    # ───────────── 11) موتور نهایی + K20 ─────────────
     eng_final = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))
 
-    # K20 پس از قطعی‌شدن F24
     k20_val = as_num(eng_final.get("K20"), 0.0)
     if k20_val <= 0:
         k20_val = as_num(var.get("F24"), 0.0) * as_num(var.get("K15"), 0.0)
     var["K20"] = k20_val
     obj.K20_industrial_wid = q2(k20_val, "0.01")
 
-    # ارزیابی سایر خروجی‌ها (به جز بلوک‌های ثابت/قفل‌شده)
-    BLOCK = {"E17", "K15", "F24", "M24", "sheet_width", "I22", "E28", "K20"}
-    # چند دور برای همگرایی
+    # سایر خروجی‌ها (به جز بلوک‌های ثابت)
+    BLOCK: set[str] = {"E17", "K15", "F24", "M24", "sheet_width", "I22", "E28", "K20"}
     for _ in range(8):
         changed = False
         eng_loop = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))
@@ -1076,7 +1263,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     var["E20"] = as_num(var.get("E20") or RowCalcs.e20_row(var, eng_final), 0.0)
     obj.E20_industrial_len = q2(var["E20"], "0.01")
 
-    # Fee_amount نهایی
+    # ───────────── 12) Fee_amount ─────────────
     base_fee = as_num(var.get("sheet_price"), 0.0)
     if base_fee <= 0:
         base_fee = as_num(bs.sheet_price_credit if settlement == "credit" else bs.sheet_price_cash, 0.0)
@@ -1086,25 +1273,25 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             except Exception:
                 base_fee = 1.0
     var["Fee_amount"] = float(base_fee)
-    ctx["fee_amount"] = float(base_fee)
+    ctx["fee_amount"]  = float(base_fee)
     try:
         setattr(obj, "Fee_amount", Decimal(str(var["Fee_amount"])))
     except Exception:
         pass
 
-    # نگاشت به مدل
+    # ───────────── 13) نگاشت به مدل ─────────────
     obj.E28_carton_consumption = q2(var.get("E28", 0.0), "0.0001")
-    obj.E38_sheet_area_m2 = q2(var.get("E38", 0.0), "0.0001")
-    obj.I38_sheet_count = int(math.ceil(var.get("I38", 0.0)))
+    obj.E38_sheet_area_m2      = q2(var.get("E38", 0.0), "0.0001")
+    obj.I38_sheet_count        = int(math.ceil(var.get("I38", 0.0)))
     obj.E41_sheet_working_cost = q2(var.get("E41", 0.0), "0.01")
-    obj.E40_overhead_cost = q2(var.get("E40", 0.0), "0.01")
-    obj.M40_total_cost = q2(var.get("M40", 0.0), "0.01")
-    obj.M41_profit_amount = q2(var.get("M41", 0.0), "0.01")
-    obj.H46_price_before_tax = q2(var.get("H46", 0.0), "0.01")
-    obj.J48_tax = q2(var.get("J48", 0.0), "0.01")
-    obj.E48_price_with_tax = q2(var.get("E48", 0.0), "0.01")
+    obj.E40_overhead_cost      = q2(var.get("E40", 0.0), "0.01")
+    obj.M40_total_cost         = q2(var.get("M40", 0.0), "0.01")
+    obj.M41_profit_amount      = q2(var.get("M41", 0.0), "0.01")
+    obj.H46_price_before_tax   = q2(var.get("H46", 0.0), "0.01")
+    obj.J48_tax                = q2(var.get("J48", 0.0), "0.01")
+    obj.E48_price_with_tax     = q2(var.get("E48", 0.0), "0.01")
 
-    # ذخیرهٔ اختیاری
+    # ───────────── 14) ذخیرهٔ اختیاری ─────────────
     if cd.get("save_record"):
         with transaction.atomic():
             if getattr(obj, "E17_lip", None) in (None, ""):
@@ -1119,23 +1306,20 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             obj.save()
         messages.success(request, "برگه قیمت ذخیره شد.")
 
-    # خروجی نهایی
-    ctx.update(
-        {
-            "result": obj,
-            "vars": var,
-            "ui_stage": "final",
-            "show_table": True,
-            "show_papers": True,
-            "result_preview": {
-                "E20": obj.E20_industrial_len,
-                "K20": obj.K20_industrial_wid,
-                "K15": q2(as_num(var.get("K15"), 0.0), "0.01"),
-            },
-        }
-    )
+    # ───────────── 15) خروجی ─────────────
+    ctx.update({
+        "result": obj,
+        "vars": var,
+        "ui_stage": "final",
+        "show_table": True,
+        "show_papers": True,
+        "result_preview": {
+            "E20": obj.E20_industrial_len,
+            "K20": obj.K20_industrial_wid,
+            "K15": q2(as_num(var.get("K15"), 0.0), "0.01"),
+        },
+    })
     return render(request, "carton_pricing/price_form.html", ctx)
-
 
 # carton_pricing/views_paper.py
 

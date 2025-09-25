@@ -51,15 +51,12 @@ class NormalizeDigitsModelForm(forms.ModelForm):
 # ============================================================================
 # ۲) فرم‌های ساده‌ی دامنه
 # ============================================================================
-class ProductForm(NormalizeDigitsModelForm):
-    class Meta:
-        model = Product
-        fields = ["name", "code"]
-        labels = {"name": "نام محصول", "code": "کد محصول (یکتا)"}
-        widgets = {
-            "name": forms.TextInput(attrs={"class": "form-control"}),
-            "code": forms.TextInput(attrs={"class": "form-control", "dir": "ltr"}),
-        }
+
+from django import forms
+from django.core.exceptions import ValidationError
+
+from .models import PriceQuotation, Customer, Paper
+
 
 
 class CustomerForm(NormalizeDigitsModelForm):
@@ -232,28 +229,86 @@ PaperFormSet = inlineformset_factory(
 # ============================================================================
 # ۵) فرم اصلی برگه قیمت
 # ============================================================================
+# forms.py
+from django import forms
+from django.core.exceptions import ValidationError
+from .models import PriceQuotation, Paper, Customer
+# forms.py  (فقط PriceForm — نسخه‌ی به‌روز)
+
+# forms.py
+
+from typing import Optional
+from django import forms
+from django.core.exceptions import ValidationError
+from django.db import models as dj_models
+
+from .models import (
+    PriceQuotation,
+    Paper,
+    PaperGroup,
+    Customer,
+)
+# from .forms_base import NormalizeDigitsModelForm  # اگر جای دیگری دارید، ایمپورت مربوطه را درست کنید
+
+
+# نام فیلدهای چک‌باکس «موارد انتخابی» که ممکن است در مدل هم باشند
+FLAG_FIELD_NAMES = [
+    "flag_customer_dims",
+    "flag_customer_sample",
+    "flag_sample_dims",
+    "flag_new_cliche",
+    "flag_staple",
+    "flag_handle_slot",
+    "flag_punch",
+    "flag_pallet_wrap",
+    "flag_shipping_not_seller",
+]
+
+
 class PriceForm(NormalizeDigitsModelForm):
     """
-    - فیلد «open_bottom_door» فقط-فرم است و در مدل ذخیره نمی‌شود.
-    - چک‌باکس «has_print_notes_bool» به رشته‌ی 'yes'/'no' روی مدل نگاشت می‌شود.
-    - جمعِ لب‌ها در cleaned_data با کلید 'E17_total' قرار می‌گیرد (برای مصرف در ویو).
+    - customer و contact_phone در UI مخفی هستند و از initial/instance پر می‌شوند؛
+      سپس در clean/save تحمیل می‌گردند (برای جلوگیری از دستکاری POST).
+    - has_print_notes_bool چک‌باکس UI است و روی مدل به Boolean یا 'yes'/'no' نگاشت می‌شود.
+    - open_bottom_door فقط-فرم است و برای محاسبات استفاده می‌شود (در مدل ذخیره نمی‌شود).
+    - جمع لب‌ها در cleaned_data با کلید 'E17_total' قرار می‌گیرد.
+    - چک‌باکس‌های «موارد انتخابی» اگر در مدل باشند، ذخیره می‌شوند؛ در غیر این صورت فقط در فرمند.
     """
+
+    # کنترل‌های عمومی فرم
     save_record = forms.BooleanField(
         required=False, initial=False, label="ذخیرهٔ برگه قیمت بعد از محاسبه؟"
     )
     has_print_notes_bool = forms.BooleanField(
         required=False, initial=False, label="چاپ و نکات تبدیل"
     )
+
+    # فقط-فرم
     open_bottom_door = forms.DecimalField(
         required=False, min_value=0, max_digits=6, decimal_places=2,
         label="درب باز پایین (cm)",
         widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "id": "id_open_bottom_door"}),
     )
 
+    # چک‌باکس‌های «موارد انتخابی» (اگر در مدل هم باشند، در save نگاشت می‌شوند)
+    flag_customer_dims       = forms.BooleanField(required=False, label="ابعاد مشتری")
+    flag_customer_sample     = forms.BooleanField(required=False, label="نمونه مشتری")
+    flag_sample_dims         = forms.BooleanField(required=False, label="ابعاد نمونه")
+    flag_new_cliche          = forms.BooleanField(required=False, label="کلیشه جدید")
+    flag_staple              = forms.BooleanField(required=False, label="منگنه")
+    flag_handle_slot         = forms.BooleanField(required=False, label="جای دسته")
+    flag_punch               = forms.BooleanField(required=False, label="پانچ")
+    flag_pallet_wrap         = forms.BooleanField(required=False, label="پالت‌کشی")
+    flag_shipping_not_seller = forms.BooleanField(required=False, label="هزینه حمل بر عهده فروشنده نیست")
+
+    # برای نمایش لیبل در قالب (non-field)
+    display_customer: Optional[str] = None
+    display_phone: Optional[str] = None
+
     class Meta:
         model = PriceQuotation
         fields = [
-            # اطلاعات پایه/سربرگ
+            # سربرگ/اطلاعات پایه
             "customer", "contact_phone", "prepared_by",
             "product_code", "carton_type", "carton_name", "description",
 
@@ -261,45 +316,17 @@ class PriceForm(NormalizeDigitsModelForm):
             "I8_qty",
             "A1_layers", "A2_pieces", "A3_door_type", "A4_door_count",
             "E15_len", "G15_wid", "I15_hgt",
-            "E17_lip",
-            "D31_flute",
-            "payment_type",
-            "E46_round_adjust",
+            "E17_lip", "D31_flute", "payment_type", "E46_round_adjust",
 
-            # انتخاب کاغذها
+            # کاغذها
             "pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer",
         ]
-        labels = {
-            "customer": "مشتری",
-            "contact_phone": "شماره تماس",
-            "prepared_by": "تنظیم‌کننده",
-            "product_code": "کد محصول",
-            "carton_type": "نوع کارتن",
-            "carton_name": "نام کارتن",
-            "description": "توضیحات",
-            "I8_qty": "تیراژ کارتن (I8)",
-            "A1_layers": "چند لایه (A1)",
-            "A2_pieces": "چند تیکه (A2)",
-            "A3_door_type": "نوع درب (A3)",
-            "A4_door_count": "تعداد درب (A4)",
-            "E15_len": "طول (E15, cm)",
-            "G15_wid": "عرض (G15, cm)",
-            "I15_hgt": "ارتفاع (I15, cm)",
-            "E17_lip": "لب درب بالا (E17, cm)",
-            "D31_flute": "گام فلوت (D31)",
-            "payment_type": "تسویه فاکتور",
-            "E46_round_adjust": "جهت رُند کردن (E46)",
-            "pq_glue_machine": "چسبان",
-            "pq_be_flute": "B/E فلوت",
-            "pq_middle_layer": "لاینر میانی",
-            "pq_c_flute": "C فلوت",
-            "pq_bottom_layer": "لاینر زیر",
-        }
         widgets = {
-            "customer": forms.Select(attrs={"class": "form-select"}),
-            "contact_phone": forms.TextInput(attrs={"class": "form-control", "dir": "ltr"}),
-            "prepared_by": forms.TextInput(attrs={"class": "form-control"}),
+            # قفل شوند (در قالب با لیبل نمایش دهید)
+            "customer": forms.HiddenInput(),
+            "contact_phone": forms.HiddenInput(),
 
+            "prepared_by": forms.TextInput(attrs={"class": "form-control"}),
             "product_code": forms.TextInput(attrs={"class": "form-control", "dir": "ltr"}),
             "carton_type": forms.TextInput(attrs={"class": "form-control"}),
             "carton_name": forms.TextInput(attrs={"class": "form-control"}),
@@ -309,7 +336,7 @@ class PriceForm(NormalizeDigitsModelForm):
 
             "A1_layers": forms.Select(attrs={"class": "form-select"}),
             "A2_pieces": forms.Select(attrs={"class": "form-select"}),
-            "A3_door_type": forms.Select(attrs={"class": "form-select"}),
+            "A3_door_type": forms.Select(attrs={"class": "form-select", "id": "id_A3_door_type"}),
             "A4_door_count": forms.Select(attrs={"class": "form-select"}),
 
             "E15_len": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
@@ -317,10 +344,8 @@ class PriceForm(NormalizeDigitsModelForm):
             "I15_hgt": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
 
             "E17_lip": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "id": "id_E17_lip"}),
-
             "D31_flute": forms.Select(attrs={"class": "form-select"}),
             "payment_type": forms.Select(attrs={"class": "form-select"}),
-
             "E46_round_adjust": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
 
             "pq_glue_machine": forms.Select(attrs={"class": "form-select"}),
@@ -334,18 +359,44 @@ class PriceForm(NormalizeDigitsModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # فهرست کاغذها برای تمام ستون‌ها (مرتب)
+        # مقداردهی لیست کاغذها
         qs = Paper.objects.order_by("name_paper")
         for fld in ("pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer"):
-            self.fields[fld].queryset = qs
+            if fld in self.fields:
+                self.fields[fld].queryset = qs
 
-        # مقدار ابتدایی چک‌باکس چاپ
-        if self.instance and getattr(self.instance, "has_print_notes", None):
-            self.initial["has_print_notes_bool"] = (self.instance.has_print_notes == "yes")
+        # لب‌ها اختیاری
+        if "E17_lip" in self.fields:
+            self.fields["E17_lip"].required = False
+        if "open_bottom_door" in self.fields:
+            self.fields["open_bottom_door"].required = False
 
-        # دو فیلد لب درب به‌صورت پیش‌فرض اختیاری باشند
-        self.fields["E17_lip"].required = False
-        self.fields["open_bottom_door"].required = False
+        # مقدار اولیه‌ی چک‌باکس چاپ از اینستنس (در صورت وجود)
+        if self.instance and hasattr(self.instance, "has_print_notes"):
+            v = getattr(self.instance, "has_print_notes")
+            self.initial["has_print_notes_bool"] = str(v).lower() in {"y", "yes", "true", "1"}
+
+        # مقدار اولیهٔ سایر چک‌باکس‌ها از اینستنس (اگر در مدل باشند)
+        for name in FLAG_FIELD_NAMES:
+            if self.instance and hasattr(self.instance, name):
+                v = getattr(self.instance, name)
+                self.initial[name] = str(v).lower() in {"y", "yes", "true", "1"}
+
+        # آماده‌سازی نمایش مشتری و تلفن
+        cust_id = self.initial.get("customer") or getattr(self.instance, "customer_id", None)
+        phone   = self.initial.get("contact_phone") or getattr(self.instance, "contact_phone", "")
+
+        if cust_id:
+            try:
+                cust = Customer.objects.only("first_name", "last_name", "organization").get(pk=cust_id)
+                self.display_customer = str(cust)
+            except Customer.DoesNotExist:
+                self.display_customer = None
+            self.initial["customer"] = cust_id  # حتماً ارسال شود
+
+        self.display_phone = phone or ""
+        if phone is not None:
+            self.initial["contact_phone"] = phone  # حتماً ارسال شود
 
     # ---------- validation ----------
     def clean_E17_lip(self):
@@ -362,22 +413,58 @@ class PriceForm(NormalizeDigitsModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        # نگاشت چک‌باکس به رشتهٔ مدل
+
+        # نگاشت چک‌باکس چاپ به رشتهٔ مدل
         cleaned["has_print_notes"] = "yes" if cleaned.get("has_print_notes_bool") else "no"
 
-        # جمع لب‌ها: برای مصرف ویو
+        # جمع لب‌ها
         e17_up = cleaned.get("E17_lip") or 0
-        e17_down = cleaned.get("open_bottom_door") or 0
-        try:
-            cleaned["E17_total"] = (e17_up or 0) + (e17_down or 0)
-        except Exception:
-            cleaned["E17_total"] = e17_up or 0
+        e17_dn = cleaned.get("open_bottom_door") or 0
+        cleaned["E17_total"] = (e17_up or 0) + (e17_dn or 0)
+
+        # تحمیل مقادیر قفل‌شده از initial
+        if "customer" in self.initial:
+            cleaned["customer"] = self.initial["customer"]
+        if "contact_phone" in self.initial:
+            cleaned["contact_phone"] = self.initial["contact_phone"]
+
         return cleaned
 
     # ---------- save ----------
     def save(self, commit: bool = True) -> PriceQuotation:
         obj: PriceQuotation = super().save(commit=False)
-        obj.has_print_notes = "yes" if self.cleaned_data.get("has_print_notes_bool") else "no"
+
+        # نگاشت چاپ: BooleanField یا رشته‌ی yes/no
+        if hasattr(obj, "has_print_notes"):
+            v = self.cleaned_data.get("has_print_notes_bool", False)
+            try:
+                f = obj._meta.get_field("has_print_notes")
+                if isinstance(f, dj_models.BooleanField):
+                    obj.has_print_notes = bool(v)
+                else:
+                    obj.has_print_notes = "yes" if v else "no"
+            except Exception:
+                obj.has_print_notes = "yes" if v else "no"
+
+        # نگاشت چک‌باکس‌های «موارد انتخابی» به مدل (اگر وجود داشته باشند)
+        for name in FLAG_FIELD_NAMES:
+            if hasattr(obj, name):
+                v = bool(self.cleaned_data.get(name, False))
+                try:
+                    f = obj._meta.get_field(name)
+                    if isinstance(f, dj_models.BooleanField):
+                        setattr(obj, name, v)
+                    else:
+                        setattr(obj, name, "yes" if v else "no")
+                except Exception:
+                    setattr(obj, name, "yes" if v else "no")
+
+        # تحمیل قفل سروری برای مشتری/شماره تماس
+        if "customer" in self.initial:
+            obj.customer_id = self.initial["customer"]
+        if "contact_phone" in self.initial:
+            obj.contact_phone = self.initial["contact_phone"]
+
         if commit:
             obj.save()
             self.save_m2m()
@@ -385,13 +472,16 @@ class PriceForm(NormalizeDigitsModelForm):
 
 
 class GroupPriceUpdateForm(forms.Form):
+    """
+    فرم اعمال قیمت واحد جدید روی تمام کاغذهای یک گروه.
+    """
     group = forms.ModelChoiceField(
         queryset=PaperGroup.objects.order_by("name"),
         label="گروه کاغذ",
-        widget=forms.Select(attrs={"class": "form-select"})
+        widget=forms.Select(attrs={"class": "form-select"}),
     )
     new_price = forms.DecimalField(
         max_digits=12, decimal_places=2, min_value=0,
         label="قیمت واحد جدید",
-        widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01"})
+        widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
     )
