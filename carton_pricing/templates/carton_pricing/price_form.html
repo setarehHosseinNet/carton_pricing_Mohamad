@@ -36,7 +36,7 @@
   {% csrf_token %}
   <input type="hidden" name="stage" id="stageField" value="{{ ui_stage|default:'s1' }}"/>
 
-  {# ───────────────────────── سربرگ: مشتری/تلفن/تنظیم‌کننده ───────────────────────── #}
+  {# ───────── سربرگ: مشتری / تماس / تنظیم‌کننده ───────── #}
   <div class="row g-3 mb-2">
     <div class="col-md-4">
       <label class="form-label">مشتری</label>
@@ -57,7 +57,7 @@
   {{ form.customer }}
   {{ form.contact_phone }}
 
-  {# ───────────────────────── کارت: آخرین سفارش + تاریخ امروز (شمسی) ───────────────────────── #}
+  {# ───────── کارت: آخرین سفارش + امروز (شمسی) ───────── #}
   <div class="card mb-3">
     <div class="card-body">
       <div class="row gy-2">
@@ -69,7 +69,7 @@
     </div>
   </div>
 
-  {# ───────────────────────── کارت: چک‌باکس‌های انتخابی ───────────────────────── #}
+  {# ───────── کارت: چک‌باکس‌های انتخابی ───────── #}
   <div class="card mb-3">
     <div class="card-header">موارد انتخابی</div>
     <div class="card-body">
@@ -90,7 +90,7 @@
     </div>
   </div>
 
-  {# ───────────────────────── مشخصات محصول و تیراژ ───────────────────────── #}
+  {# ───────── مشخصات محصول و تیراژ ───────── #}
   <div class="row g-3">
     <div class="col-md-3">
       <label class="form-label" for="{{ form.product_code.id_for_label }}">{{ form.product_code.label }}</label>
@@ -113,7 +113,7 @@
       {% for e in form.I8_qty.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# ── کد A6 ── #}
+    {# ── A6 ── #}
     <div class="col-md-3">
       <label class="form-label" for="{{ form.A1_layers.id_for_label }}">{{ form.A1_layers.label }}</label>
       {{ form.A1_layers }}
@@ -152,7 +152,7 @@
       {% for e in form.I15_hgt.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# ── لب‌ها (برای «درب باز») ── #}
+    {# ── لب‌ها برای «درب باز» ── #}
     <div class="col-md-3 open-door-extra d-none" id="field-e17-wrap">
       <label class="form-label" for="{{ form.E17_lip.id_for_label }}">{{ form.E17_lip.label }}</label>
       {{ form.E17_lip }}
@@ -172,31 +172,31 @@
     </div>
   </div>
 
-  {# ───────────────────────── ترکیب کاغذ ───────────────────────── #}
+  {# ───────── ترکیب کاغذ (با شناسه برای کنترل نمایش) ───────── #}
   <div class="card mt-2">
     <div class="card-header">ترکیب کاغذ</div>
     <div class="card-body row g-3">
-      <div class="col-md-4">
+      <div class="col-md-4" id="wrap-glue">
         <label class="form-label" for="{{ form.pq_glue_machine.id_for_label }}">{{ form.pq_glue_machine.label }}</label>
         {{ form.pq_glue_machine }}
         {% for e in form.pq_glue_machine.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
-      <div class="col-md-4">
+      <div class="col-md-4" id="wrap-be">
         <label class="form-label" for="{{ form.pq_be_flute.id_for_label }}">{{ form.pq_be_flute.label }}</label>
         {{ form.pq_be_flute }}
         {% for e in form.pq_be_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
-      <div class="col-md-4">
+      <div class="col-md-4" id="wrap-mid">
         <label class="form-label" for="{{ form.pq_middle_layer.id_for_label }}">{{ form.pq_middle_layer.label }}</label>
         {{ form.pq_middle_layer }}
         {% for e in form.pq_middle_layer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
-      <div class="col-md-4">
+      <div class="col-md-4" id="wrap-c">
         <label class="form-label" for="{{ form.pq_c_flute.id_for_label }}">{{ form.pq_c_flute.label }}</label>
         {{ form.pq_c_flute }}
         {% for e in form.pq_c_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
-      <div class="col-md-4">
+      <div class="col-md-4" id="wrap-bottom">
         <label class="form-label" for="{{ form.pq_bottom_layer.id_for_label }}">{{ form.pq_bottom_layer.label }}</label>
         {{ form.pq_bottom_layer }}
         {% for e in form.pq_bottom_layer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
@@ -204,7 +204,7 @@
     </div>
   </div>
 
-  {# ───────────────────────── جدول انتخاب عرض ورق ───────────────────────── #}
+  {# ───────── جدول انتخاب عرض ورق ───────── #}
   {% if best_by_width %}
     <div class="card mt-3">
       <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
@@ -268,7 +268,7 @@
   </div>
 </form>
 
-{# ───────────────────────── کارت نتیجه ───────────────────────── #}
+{# ───────── نتیجه ───────── #}
 {% if ui_stage == 'final' %}
   <div class="card shadow-sm">
     <div class="card-header">نتیجه محاسبات</div>
@@ -300,7 +300,7 @@
 (function () {
   "use strict";
 
-  // نمایش/مخفی‌سازی فیلدهای «درب باز»
+  // ===== درب باز (مثل قبل) =====
   function toggleOpenDoorExtras(show) {
     document.querySelectorAll('.open-door-extra').forEach(el=>{
       el.classList.toggle('d-none', !show);
@@ -312,20 +312,63 @@
       if(obd) obd.value = '';
     }
   }
-
-  // تشخیص انتخاب «درب باز» در سلکت A3
   function isOpenDoorSelected() {
     const sel = document.getElementById('id_A3_door_type');
     if(!sel) return false;
     const val = (sel.value || '').trim();
     const txt = (sel.options[sel.selectedIndex]?.text || '').replace(/\s+/g,'').trim();
-    // سازگار با داده‌های شما: value=1 یا متن «درب باز»
     return val === '1' || txt.includes('دربباز');
   }
+  function updateByA3(){ toggleOpenDoorExtras(isOpenDoorSelected()); }
 
-  function updateByA3() { toggleOpenDoorExtras(isOpenDoorSelected()); }
+  // ===== گام فلوت ⇒ نمایش ستون‌های ترکیب کاغذ =====
+  function showWrap(id, show){
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.classList.toggle('d-none', !show);
+    // کنترل‌های داخل ستون را هم غیرفعال/فعال کن
+    el.querySelectorAll('select, input, textarea').forEach(ctrl => ctrl.disabled = !show);
+  }
 
-  // ذخیره مرحله ارسال
+  function currentFluteText(){
+    const sel = document.getElementById('id_D31_flute');
+    if(!sel) return '';
+    // متن نمایش داده‌شده را مبنا قرار می‌دهیم (ممکن است value عددی باشد)
+    const txt = (sel.options[sel.selectedIndex]?.text || '').toUpperCase();
+    // برای اطمینان فاصله‌ها را حذف می‌کنیم
+    return txt.replace(/\s+/g,'').trim();
+  }
+
+  function updateFluteColumns(){
+    const t = currentFluteText();   // مثلا "FLOUTC" یا "C" یا "فلوتC"
+    // پیش‌فرض: همه روشن
+    let showGlue=true, showBE=true, showMid=true, showC=true, showBottom=true;
+
+    // اگر C انتخاب است: فقط Glue + C + Bottom
+    if (/(^|[^A-Z])C([^A-Z]|$)/.test(t)) {
+      showGlue = true; showC = true; showBottom = true;
+      showBE = false;  showMid = false;
+    }
+    // اگر D انتخاب است: فقط Glue + B/E + Bottom
+    else if (/(^|[^A-Z])D([^A-Z]|$)/.test(t)) {
+      showGlue = true; showBE = true; showBottom = true;
+      showC = false;   showMid = false;
+    }
+    // اگر E انتخاب است: فقط Glue + B/E + Bottom
+    else if (/(^|[^A-Z])E([^A-Z]|$)/.test(t)) {
+      showGlue = true; showBE = true; showBottom = true;
+      showC = false;   showMid = false;
+    }
+    // سایر حالات: همه روشن
+
+    showWrap('wrap-glue',   showGlue);
+    showWrap('wrap-be',     showBE);
+    showWrap('wrap-mid',    showMid);
+    showWrap('wrap-c',      showC);
+    showWrap('wrap-bottom', showBottom);
+  }
+
+  // ذخیره مرحله
   const stageField = document.getElementById('stageField');
   document.querySelectorAll('button[type="submit"][data-stage]').forEach(btn=>{
     btn.addEventListener('click', ()=> { if(stageField) stageField.value = btn.dataset.stage; });
@@ -339,11 +382,25 @@
     btnSubmit?.setAttribute('disabled','disabled');
   });
 
-  // اعمال اولیه
-  window.addEventListener('load', updateByA3);
+  // رویدادها و اجرای اولیه
+  window.addEventListener('load', function(){
+    updateByA3();
+    updateFluteColumns();
+  });
+
+  // تغییر «نوع درب»
   document.getElementById('id_A3_door_type')?.addEventListener('change', updateByA3);
+
+  // تغییر «گام فلوت» (ساده + سازگاری با Select2)
+  const d31 = document.getElementById('id_D31_flute');
+  d31?.addEventListener('change', updateFluteColumns);
+  d31?.addEventListener('input',  updateFluteColumns);
+  if (window.jQuery && jQuery.fn && jQuery.fn.select2 && d31) {
+    jQuery(d31).on('change.select2', updateFluteColumns);
+  }
 })();
 </script>
+
 
 <style>
   .form-check-inline .form-check-input{margin-inline:.25rem;}
