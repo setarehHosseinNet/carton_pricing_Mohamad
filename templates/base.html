@@ -25,10 +25,11 @@
 </head>
 <body class="bg-light">
 
-<nav class="navbar navbar-expand-lg bg-white border-bottom mb-3">
+<nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom mb-3">
   <div class="container-fluid">
 
-    <a class="navbar-brand" href="{% url 'carton_pricing:price_form' %}">کارتن محمد</a>
+    <!-- برند: به لیست مشتریان -->
+    <a class="navbar-brand" href="{% url 'carton_pricing:customer_list' %}">کارتن محمد</a>
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav" aria-controls="topNav" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
@@ -38,19 +39,24 @@
     <div id="topNav" class="collapse navbar-collapse">
       <ul class="navbar-nav me-auto">
 
+        <!-- مشتریان -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {% if url_name in 'customer_list customer_create customer_update customer_invoices' %}active{% endif %}"
+             href="#" id="custMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            مشتریان
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="custMenu">
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:customer_list' %}">لیست مشتریان</a></li>
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:customer_create' %}">+ مشتری جدید</a></li>
+            {# لینک «فاکتورهای مشتری» به pk نیاز دارد و معمولاً داخل صفحهٔ مشتری قرار می‌گیرد #}
+          </ul>
+        </li>
+
         <!-- فرم قیمت -->
         <li class="nav-item">
           <a class="nav-link {% if url_name == 'price_form' %}active{% endif %}"
              href="{% url 'carton_pricing:price_form' %}">
             فرم قیمت
-          </a>
-        </li>
-
-        <!-- اطلاعات پایه -->
-        <li class="nav-item">
-          <a class="nav-link {% if url_name == 'base_settings' %}active{% endif %}"
-             href="{% url 'carton_pricing:base_settings' %}">
-            اطلاعات پایه
           </a>
         </li>
 
@@ -62,9 +68,17 @@
           </a>
         </li>
 
-        <!-- تعاریف -->
+        <!-- اطلاعات پایه -->
+        <li class="nav-item">
+          <a class="nav-link {% if url_name == 'base_settings' %}active{% endif %}"
+             href="{% url 'carton_pricing:base_settings' %}">
+            اطلاعات پایه
+          </a>
+        </li>
+
+        <!-- تعاریف: کاغذها و گروه‌های کاغذ -->
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {% if url_name in 'paper_list paper_create paper_update group_list group_add group_update group_delete' %}active{% endif %}"
+          <a class="nav-link dropdown-toggle {% if url_name in 'paper_list paper_create paper_update group_list group_add group_update group_delete group_bulk_price' %}active{% endif %}"
              href="#" id="defsMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             تعاریف
           </a>
@@ -78,11 +92,25 @@
             <!-- گروه کاغذ -->
             <li><a class="dropdown-item" href="{% url 'carton_pricing:group_list' %}">گروه‌های کاغذ</a></li>
             <li><a class="dropdown-item" href="{% url 'carton_pricing:group_add' %}">+ گروه جدید</a></li>
- <li><a class="dropdown-item" href="{% url 'carton_pricing:group_bulk_price' %}">برورز رسانی قیمت یک گروه</a></li>
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:group_bulk_price' %}">به‌روزرسانی گروهی قیمت</a></li>
+
             <li><hr class="dropdown-divider"></li>
 
-            <!-- گام فلوت (فعلاً از ادمین) -->
+            <!-- گام فلوت (از ادمین) -->
             <li><a class="dropdown-item" href="{% url 'admin:carton_pricing_flutestep_changelist' %}">گام فلوت</a></li>
+          </ul>
+        </li>
+
+        <!-- بندهای اضافی (Extra Charges) -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {% if url_name in 'extracharge_list extracharge_create extracharge_update extracharge_delete' %}active{% endif %}"
+             href="#" id="extraMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            تعاریف قیمت
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="extraMenu">
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:extracharge_list' %}">لیست بندهای اضافی قیمت</a></li>
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:extracharge_create' %}">+ بند جدید</a></li>
+            {# مسیرهای edit/delete به pk نیاز دارند و از داخل لیست در دسترس‌اند #}
           </ul>
         </li>
 
@@ -98,7 +126,7 @@
 
 <div class="container">
 
-  {# پیام‌های Django messages اگر لازم داری اینجا رندر کن #}
+  {# پیام‌های Django messages #}
   {% if messages %}
     <div class="mb-3">
       {% for message in messages %}
@@ -113,7 +141,6 @@
 <!-- Bootstrap Bundle (with Popper) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-{# Persian date/datepicker — اگر همهٔ صفحات لازم ندارند می‌تونی به صفحات خاص منتقل کنی #}
 {% block foot_vendor_js %}
 <script src="https://cdn.jsdelivr.net/npm/persian-date@1.1.0/dist/persian-date.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/persian-datepicker@1.2.0/dist/css/persian-datepicker.css" />

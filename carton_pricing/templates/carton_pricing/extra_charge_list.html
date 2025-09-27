@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<h3 class="mb-3">بندهای اضافی</h3>
+
+{% if messages %}
+  {% for m in messages %}
+    <div class="alert alert-{{ m.tags|default:'info' }}">{{ m }}</div>
+  {% endfor %}
+{% endif %}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <div class="text-muted">تعداد: {{ items|length }}</div>
+  <a class="btn btn-primary btn-sm" href="{% url 'carton_pricing:extracharge_create' %}">+ افزودن بند جدید</a>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 text-center">
+      <thead class="table-light">
+        <tr>
+          <th>عنوان</th>
+          <th>نقد</th>
+          <th>مدت‌دار</th>
+          <th>اجباری؟</th>
+          <th>نمایش در فاکتور؟</th>
+          <th>وضعیت</th>
+          <th style="width:150px">عملیات</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          <tr>
+            <td class="text-start">{{ it.title }}</td>
+            <td>{{ it.amount_cash|floatformat:2 }}</td>
+            <td>{{ it.amount_credit|floatformat:2 }}</td>
+            <td>{% if it.is_required %}✔{% else %}—{% endif %}</td>
+            <td>{% if it.show_on_invoice %}✔{% else %}—{% endif %}</td>
+            <td>
+              <span class="badge {% if it.is_active %}bg-success{% else %}bg-secondary{% endif %}">
+                {% if it.is_active %}فعال{% else %}غیرفعال{% endif %}
+              </span>
+            </td>
+            <td>
+              <a class="btn btn-outline-secondary btn-sm"
+                 href="{% url 'carton_pricing:extracharge_update' it.pk %}">ویرایش</a>
+              <a class="btn btn-outline-danger btn-sm"
+                 href="{% url 'carton_pricing:extracharge_delete' it.pk %}">حذف</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="text-muted">موردی ثبت نشده است.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

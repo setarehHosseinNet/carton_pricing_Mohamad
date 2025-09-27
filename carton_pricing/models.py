@@ -315,3 +315,51 @@ class PriceQuotation(TimeStamped):
     def __str__(self) -> str:
         date = timezone.localdate(self.created_at) if self.created_at else ""
         return f"برگه قیمت #{self.id} — {self.customer} — {date}"
+
+
+from django.db import models
+
+class ExtraCharge(models.Model):
+    """بندهای اضافی که می‌خواهیم روی برگه/فاکتور اعمال شوند."""
+    title = models.CharField(
+        max_length=120,
+        verbose_name="بندهای اضافی به مبلغ"
+    )
+    amount_cash = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name="مبلغ برای نقد"
+    )
+    amount_credit = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name="مبلغ برای مدت‌دار"
+    )
+    is_required = models.BooleanField(
+        default=False,
+        verbose_name="اجبار برای اعمال"
+    )
+    show_on_invoice = models.BooleanField(
+        default=True,
+        verbose_name="نمایش به عنوان یک بند در فاکتور"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="فعال؟"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="ایجاد")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="ویرایش")
+
+    class Meta:
+        verbose_name = "بند اضافی"
+        verbose_name_plural = "بندهای اضافی"
+        ordering = ("-is_active", "title")
+
+    def __str__(self) -> str:
+        return self.title
+
+    def amount_for(self, settlement: str) -> float:
+        """
+        settlement: 'cash' یا 'credit'
+        """
+        return float(self.amount_credit if (settlement or "").lower() == "credit"
+                     else self.amount_cash)

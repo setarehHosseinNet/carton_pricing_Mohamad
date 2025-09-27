@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h3 class="mb-3">حذف بند اضافی</h3>
+<div class="alert alert-warning">آیا از حذف «{{ object.title }}» مطمئن هستید؟ این عمل قابل بازگشت نیست.</div>
+<form method="post">
+  {% csrf_token %}
+  <button class="btn btn-danger" type="submit">بله، حذف شود</button>
+  <a class="btn btn-secondary" href="{% url 'carton_pricing:extracharge_list' %}">بازگشت</a>
+</form>
+{% endblock %}
