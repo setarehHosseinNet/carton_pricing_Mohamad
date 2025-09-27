@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<h3 class="mb-3">{% if object %}ویرایش بند{% else %}افزودن بند جدید{% endif %}</h3>
+
+<form method="post" class="card card-body" dir="rtl">
+  {% csrf_token %}
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.title.id_for_label }}">{{ form.title.label }}</label>
+      {{ form.title }}
+      {% for e in form.title.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.amount_cash.id_for_label }}">{{ form.amount_cash.label }}</label>
+      {{ form.amount_cash }}
+      {% for e in form.amount_cash.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.amount_credit.id_for_label }}">{{ form.amount_credit.label }}</label>
+      {{ form.amount_credit }}
+      {% for e in form.amount_credit.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-12 d-flex flex-wrap gap-4 mt-2">
+      <label class="form-check">
+        {{ form.is_required }} <span class="ms-1">{{ form.is_required.label }}</span>
+      </label>
+      <label class="form-check">
+        {{ form.show_on_invoice }} <span class="ms-1">{{ form.show_on_invoice.label }}</span>
+      </label>
+      <label class="form-check">
+        {{ form.is_active }} <span class="ms-1">{{ form.is_active.label }}</span>
+      </label>
+    </div>
+
+    <div class="col-12 mt-3">
+      <button class="btn btn-primary" type="submit">ذخیره</button>
+      <a class="btn btn-secondary" href="{% url 'carton_pricing:extracharge_list' %}">انصراف</a>
+    </div>
+  </div>
+</form>
+{% endblock %}
