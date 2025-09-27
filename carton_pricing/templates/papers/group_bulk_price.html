@@ -19,6 +19,12 @@
       {{ form.new_price }}
       {% for e in form.new_price.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
+        <!-- 🆕 هزینه حمل -->
+  <div class="col-md-6">
+    <label class="form-label" for="{{ form.shipping_cost.id_for_label }}">{{ form.shipping_cost.label }}</label>
+    {{ form.shipping_cost }}
+    {% for e in form.shipping_cost.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+  </div>
   </div>
 
   <div class="d-flex gap-2 mt-3">

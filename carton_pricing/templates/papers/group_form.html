@@ -43,6 +43,7 @@
           <th>گرماژ</th>
           <th>عرض (cm)</th>
           <th>قیمت واحد</th>
+             <th>قیمت حمل</th>
           <th>مقدار واحد</th>
           {% if formset.can_delete %}<th class="text-center">حذف؟</th>{% endif %}
         </tr>
@@ -59,6 +60,7 @@
             <td>{{ f.grammage_gsm }}</td>
             <td>{{ f.width_cm }}</td>
             <td>{{ f.unit_price }}</td>
+             <td>{{ f.shipping_cost }}</td>
             <td>{{ f.unit_amount }}</td>
             {% if formset.can_delete %}
               <td class="text-center">{{ f.DELETE }}</td>

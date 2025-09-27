@@ -180,39 +180,26 @@ class PaperGroupForm(NormalizeDigitsModelForm):
         }
 
 
-class PaperForm(NormalizeDigitsModelForm):
-    """فرم واحد کاغذ (برای CRUD مستقل و همچنین درون فرم‌ست گروه)."""
+# carton_pricing/forms.py
+from django import forms
+from .models import Paper
+
+class PaperForm(forms.ModelForm):
     class Meta:
         model = Paper
-        fields = ["name_paper", "group", "grammage_gsm", "width_cm", "unit_price", "unit_amount"]
-        labels = {
-            "name_paper": "نام کاغذ",
-            "group": "گروه",
-            "grammage_gsm": "گرماژ (gsm)",
-            "width_cm": "عرض (cm)",
-            "unit_price": "قیمت واحد",
-            "unit_amount": "مقدار واحد",
-        }
+        fields = [
+            "name_paper", "group", "grammage_gsm", "width_cm",
+            "unit_price", "shipping_cost", "unit_amount",
+        ]
         widgets = {
-            "name_paper":  forms.TextInput(attrs={"class": "form-control", "placeholder": "Kraft 140"}),
+            "name_paper":  forms.TextInput(attrs={"class": "form-control"}),
             "group":       forms.Select(attrs={"class": "form-select"}),
             "grammage_gsm":forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": 1}),
-            "width_cm":    forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
-            "unit_price":  forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
-            "unit_amount": forms.TextInput(attrs={"class": "form-control", "placeholder": "1 m²"}),
+            "width_cm":    forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "unit_price":  forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "shipping_cost": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),  # 👈 جدید
+            "unit_amount": forms.TextInput(attrs={"class": "form-control"}),
         }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # برای UX بهتر: گروه‌ها را مرتب و گزینهٔ خالی بگذار
-        self.fields["group"].queryset = PaperGroup.objects.order_by("name")
-        self.fields["group"].empty_label = "— انتخاب گروه —"
-
-    def clean_name_paper(self) -> str:
-        name = (self.cleaned_data.get("name_paper") or "").strip()
-        if not name:
-            raise ValidationError("نام کاغذ الزامی است.")
-        return name
 
 
 # فرم‌ست کاغذها داخل صفحهٔ گروه کاغذ
@@ -481,9 +468,16 @@ class GroupPriceUpdateForm(forms.Form):
         widget=forms.Select(attrs={"class": "form-select"}),
     )
     new_price = forms.DecimalField(
-        max_digits=12, decimal_places=2, min_value=0,
+        max_digits=12, decimal_places=0, min_value=0,
         label="قیمت واحد جدید",
         widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+    )
+    # 🆕 اختیاری: به‌روزرسانی هزینه حمل
+    apply_shipping = forms.BooleanField(required=False, initial=False, label="به‌روزرسانی هزینه حمل؟")
+    new_shipping_cost = forms.DecimalField(
+        max_digits=12, decimal_places=0, min_value=0, required=False,
+        label="هزینه حمل جدید (اختیاری)",
+        widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01"})
     )
 
 

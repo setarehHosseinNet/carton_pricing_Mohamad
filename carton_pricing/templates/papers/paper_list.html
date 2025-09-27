@@ -1,37 +1,120 @@
+{# templates/carton_pricing/papers/list.html #}
 {% extends "base.html" %}
-{% block title %}کاغذها{% endblock %}
+
 {% block content %}
-<div class="d-flex align-items-center mb-3">
-  <h3 class="mb-0">کاغذها</h3>
-  <a href="{% url 'carton_pricing:paper_create' %}" class="btn btn-primary btn-sm ms-auto">+ کاغذ جدید</a>
+<h3 class="mb-3">کاغذها</h3>
+
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a class="btn btn-primary" href="{% url 'carton_pricing:paper_create' %}">+ کاغذ جدید</a>
+
+  <form class="ms-auto d-flex" method="get">
+    {# برای حفظ سورت فعلی هنگام جست‌وجو #}
+    {% if o %}<input type="hidden" name="o" value="{{ o }}">{% endif %}
+    <input type="search" class="form-control" name="q" placeholder="جست‌وجو در نام، گروه، اعداد…" value="{{ q|default:'' }}">
+    {% if q %}
+      <a class="btn btn-outline-secondary ms-2" href="?{% if o %}o={{ o }}{% endif %}">پاک‌کردن</a>
+    {% endif %}
+    <button class="btn btn-outline-primary ms-2" type="submit">جست‌وجو</button>
+  </form>
 </div>
 
-<table class="table table-hover align-middle">
-  <thead>
-    <tr>
-      <th>نام</th>
-      <th>گروه</th>
-      <th>گرماژ</th>
-      <th>عرض (cm)</th>
-      <th>قیمت واحد</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for p in papers %}
-      <tr>
-        <td>{{ p.name_paper }}</td>
-        <td>{{ p.group|default:"—" }}</td>
-        <td>{{ p.grammage_gsm|default:"—" }}</td>
-        <td>{{ p.width_cm|default:"—" }}</td>
-        <td>{{ p.unit_price|default:"—" }}</td>
-        <td class="text-end">
-          <a href="{% url 'carton_pricing:paper_update' p.pk %}" class="btn btn-sm btn-outline-secondary">ویرایش</a>
-        </td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="6" class="text-center text-muted">چیزی ثبت نشده است.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead>
+      {% with keep_q="" %}
+        {% if q %}{% with keep_q="q="|add:q|urlencode|add:"&" %}{% endwith %}{% endif %}
+
+        <tr>
+          <th>
+            <a href="?{{ keep_q }}o={% if order_key == 'name' and not order_desc %}-name{% else %}name{% endif %}">
+              نام
+              {% if order_key == 'name' %}<small>{% if order_desc %}▼{% else %}▲{% endif %}</small>{% endif %}
+            </a>
+          </th>
+          <th class="text-center">
+            <a href="?{{ keep_q }}o={% if order_key == 'group' and not order_desc %}-group{% else %}group{% endif %}">
+              گروه
+              {% if order_key == 'group' %}<small>{% if order_desc %}▼{% else %}▲{% endif %}</small>{% endif %}
+            </a>
+          </th>
+          <th class="text-center">
+            <a href="?{{ keep_q }}o={% if order_key == 'gsm' and not order_desc %}-gsm{% else %}gsm{% endif %}">
+              گرماژ (gsm)
+              {% if order_key == 'gsm' %}<small>{% if order_desc %}▼{% else %}▲{% endif %}</small>{% endif %}
+            </a>
+          </th>
+          <th class="text-center">
+            <a href="?{{ keep_q }}o={% if order_key == 'width' and not order_desc %}-width{% else %}width{% endif %}">
+              عرض (cm)
+              {% if order_key == 'width' %}<small>{% if order_desc %}▼{% else %}▲{% endif %}</small>{% endif %}
+            </a>
+          </th>
+          <th class="text-end">
+            <a href="?{{ keep_q }}o={% if order_key == 'total' and not order_desc %}-total{% else %}total{% endif %}">
+              قیمت واحد (+حمل)
+              {% if order_key == 'total' %}<small>{% if order_desc %}▼{% else %}▲{% endif %}</small>{% endif %}
+            </a>
+          </th>
+          <th class="text-end">
+            <a href="?{{ keep_q }}o={% if order_key == 'unit' and not order_desc %}-unit{% else %}unit{% endif %}">
+              قیمت واحد
+              {% if order_key == 'unit' %}<small>{% if order_desc %}▼{% else %}▲{% endif %}</small>{% endif %}
+            </a>
+          </th>
+          <th class="text-end">
+            <a href="?{{ keep_q }}o={% if order_key == 'ship' and not order_desc %}-ship{% else %}ship{% endif %}">
+              هزینه حمل
+              {% if order_key == 'ship' %}<small>{% if order_desc %}▼{% else %}▲{% endif %}</small>{% endif %}
+            </a>
+          </th>
+          <th class="text-center">عملیات</th>
+        </tr>
+      {% endwith %}
+    </thead>
+
+    <tbody>
+      {% for p in object_list %}
+        <tr>
+          <td>{{ p.name_paper }}</td>
+          <td class="text-center">{{ p.group.name|default:"—" }}</td>
+          <td class="text-center">{{ p.grammage_gsm|default:"—" }}</td>
+          <td class="text-center">{{ p.width_cm|default:"—" }}</td>
+          <td class="text-end">{{ p.total_price|floatformat:2 }}</td>
+          <td class="text-end">{{ p.unit_price|default_if_none:"—"|floatformat:2 }}</td>
+          <td class="text-end">{{ p.shipping_cost|default_if_none:"—"|floatformat:2 }}</td>
+          <td class="text-center">
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'carton_pricing:paper_update' p.pk %}">ویرایش</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="text-center text-muted">موردی پیدا نشد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# صفحه‌بندی اختیاری #}
+{% if is_paginated %}
+  <nav class="mt-2">
+    <ul class="pagination pagination-sm">
+      {% if page_obj.has_previous %}
+        <li class="page-item">
+          <a class="page-link" href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if o %}o={{ o }}&{% endif %}page={{ page_obj.previous_page_number }}">قبلی</a>
+        </li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">قبلی</span></li>
+      {% endif %}
+
+      <li class="page-item disabled"><span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+
+      {% if page_obj.has_next %}
+        <li class="page-item">
+          <a class="page-link" href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if o %}o={{ o }}&{% endif %}page={{ page_obj.next_page_number }}">بعدی</a>
+        </li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">بعدی</span></li>
+      {% endif %}
+    </ul>
+  </nav>
+{% endif %}
 {% endblock %}

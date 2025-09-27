@@ -287,3 +287,12 @@ class PriceQuotationAdmin(admin.ModelAdmin):
             )
         }),
     )
+# carton_pricing/admin.py
+from django.contrib import admin
+from .models import Paper
+
+# @admin.register(Paper)
+# class PaperAdmin(admin.ModelAdmin):
+#     list_display = ("name_paper", "group", "grammage_gsm", "width_cm", "unit_price", "shipping_cost", "unit_amount")
+#     list_filter = ("group",)
+#     search_fields = ("name_paper",)

@@ -27,7 +27,7 @@ from django.forms import inlineformset_factory, NumberInput, TextInput
 PaperFormSet = inlineformset_factory(
     parent_model=PaperGroup,
     model=Paper,
-    fields=["name_paper", "grammage_gsm", "width_cm", "unit_price", "unit_amount"],
+    fields=["name_paper", "grammage_gsm", "width_cm", "unit_price","shipping_cost", "unit_amount"],
     extra=0,
     can_delete=True,
     widgets={
@@ -39,6 +39,7 @@ PaperFormSet = inlineformset_factory(
         "grammage_gsm": NumberInput(attrs={"class": "form-control", "min": 0}),
         "width_cm":     NumberInput(attrs={"class": "form-control", "step": "0.01", "min": 0}),
         "unit_price":   NumberInput(attrs={"class": "form-control", "step": "0.01", "min": 0}),
+        "shipping_cost": NumberInput(attrs={"class": "form-control", "step": "0.01", "min": 0}),
         "unit_amount":  TextInput(attrs={"class": "form-control", "placeholder": "مثلاً 1 m²"}),
     },
 )
@@ -80,7 +81,7 @@ from django.forms import inlineformset_factory, NumberInput, TextInput
 PaperFormSet = inlineformset_factory(
     parent_model=PaperGroup,
     model=Paper,
-    fields=["name_paper", "grammage_gsm", "width_cm", "unit_price", "unit_amount"],
+    fields=["name_paper", "grammage_gsm", "width_cm", "unit_price","shipping_cost", "unit_amount"],
     extra=0,                # ردیف اضافه اولیه (می‌توانید 1 بگذارید)
     can_delete=True,        # امکان حذف ردیف‌ها
     widgets={
@@ -88,6 +89,7 @@ PaperFormSet = inlineformset_factory(
         "grammage_gsm": NumberInput(attrs={"class": "form-control", "min": 0}),
         "width_cm":     NumberInput(attrs={"class": "form-control", "step": "0.01", "min": 0}),
         "unit_price":   NumberInput(attrs={"class": "form-control", "step": "0.01", "min": 0}),
+        "shipping_cost":   NumberInput(attrs={"class": "form-control", "step": "0.01", "min": 0}),
         "unit_amount":  TextInput(attrs={"class": "form-control", "placeholder": "مثلاً 1 m²"}),
     },
 )
@@ -224,22 +226,24 @@ class PaperGroupDeleteView(DeleteView):
 
 
 
+# carton_pricing/views_paper_groups.py
 from decimal import Decimal, ROUND_HALF_UP
+from django.views.generic.edit import FormView
+from django.urls import reverse, reverse_lazy
 from django.contrib import messages
 from django.db import transaction
-from django.urls import reverse, reverse_lazy
-from django.views.generic import FormView
-
 from .forms import GroupPriceUpdateForm
-from .models import Paper, PaperGroup
+from .models import PaperGroup, Paper
+
 class GroupBulkPriceView(FormView):
     """
-    صفحه‌ای برای انتخاب گروه و اعمال یک قیمت جدید روی تمام Paperهای آن گروه.
+    اعمال یک/چند مقدار جدید (قیمت واحد و/یا هزینه حمل) روی تمام Paperهای یک گروه.
     """
-    template_name = "papers/group_bulk_price.html"
+    template_name = "carton_pricing/groups/bulk_price.html"  # اگر مسیر دیگری داری، هماهنگش کن
     form_class = GroupPriceUpdateForm
     success_url = reverse_lazy("carton_pricing:group_bulk_price")
 
+    # گروه انتخاب‌شده از querystring را داخل فرم initial می‌گذاریم
     def get_initial(self):
         initial = super().get_initial()
         gid = self.request.GET.get("group")
@@ -250,6 +254,7 @@ class GroupBulkPriceView(FormView):
                 pass
         return initial
 
+    # برای پیش‌نمایش لیست کاغذهای گروه
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         gid = self.request.POST.get("group") or self.request.GET.get("group")
@@ -266,19 +271,33 @@ class GroupBulkPriceView(FormView):
 
     def form_valid(self, form):
         group = form.cleaned_data["group"]
-        new_price = form.cleaned_data["new_price"]
+        new_price = form.cleaned_data.get("new_price")
+        new_ship  = form.cleaned_data.get("new_shipping_cost")
 
-        # رُند به 2 رقم اعشار با HALF_UP
-        new_price = Decimal(new_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        updates = {}
+        if new_price not in (None, ""):
+            updates["unit_price"] = Decimal(new_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if new_ship not in (None, ""):
+            updates["shipping_cost"] = Decimal(new_ship).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        if not updates:
+            messages.warning(self.request, "مقداری برای به‌روزرسانی ارسال نشد.")
+            return super().form_valid(form)
 
         with transaction.atomic():
             qs = Paper.objects.select_for_update().filter(group=group)
-            updated = qs.update(unit_price=new_price)
+            updated = qs.update(**updates)
 
-        messages.success(
-            self.request,
-            f"قیمت {updated} کاغذ در گروه «{group.name}» به {new_price} به‌روزرسانی شد."
-        )
-        # بعد از موفقیت، گروهِ انتخاب‌شده در URL بماند تا پیش‌نمایش دیده شود
+        # پیام موفقیت شفاف
+        parts = []
+        if "unit_price" in updates:
+            parts.append(f"قیمت واحد = {updates['unit_price']}")
+        if "shipping_cost" in updates:
+            parts.append(f"هزینه حمل = {updates['shipping_cost']}")
+        msg = " و ".join(parts)
+
+        messages.success(self.request, f"{updated} کاغذ در گروه «{group.name}» به‌روزرسانی شد: {msg}")
+
+        # بعد از موفقیت، گروه انتخاب‌شده در آدرس باقی بماند تا پیش‌نمایش بماند
         self.success_url = f"{reverse('carton_pricing:group_bulk_price')}?group={group.pk}"
         return super().form_valid(form)

@@ -165,12 +165,11 @@ class PaperGroup(TimeStamped):
 class Paper(TimeStamped):
     name_paper   = models.CharField("Name_Paper", max_length=120, unique=True)
 
-    # ← موقتاً قابل تهی تا مایگریشن بدون پیش‌فرض بسازد
-    group        = models.ForeignKey(
+    group = models.ForeignKey(
         PaperGroup,
         verbose_name="گروه",
         related_name="papers",
-        on_delete=models.PROTECT,   # یا SET_NULL اگر ترجیح می‌دهی
+        on_delete=models.PROTECT,   # یا SET_NULL
         null=True, blank=True,
     )
 
@@ -179,11 +178,27 @@ class Paper(TimeStamped):
     unit_price   = models.DecimalField("قیمت واحد", max_digits=12, decimal_places=2, null=True, blank=True)
     unit_amount  = models.CharField("مقدار واحد", max_length=50, default="1 m²")
 
+    # 👇 فیلد جدید (اختیاری)
+    shipping_cost = models.DecimalField(
+        "هزینهٔ حمل",
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="اختیاری؛ مبلغ به همان واحد پولی قیمت واحد."
+    )
+
     class Meta:
         ordering = ("name_paper",)
 
     def __str__(self) -> str:
-        return self.name_paper
+        return self.name_paper or f"Paper #{self.pk}"
+
+    @property
+    def unit_price_total(self) -> Decimal:
+        a = self.unit_price or Decimal("0")
+        b = self.shipping_cost or Decimal("0")
+        return (a + b).quantize(Decimal("0.01"))
 
 class FluteStep(TimeStamped):
     """فقط گام فلوت (کاملاً مستقل از کاغذ)"""
