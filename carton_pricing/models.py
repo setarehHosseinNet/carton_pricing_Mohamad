@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 
 
+
 # ------------------------- Base mixin -------------------------
 class TimeStamped(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

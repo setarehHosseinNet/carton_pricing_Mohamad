@@ -164,6 +164,60 @@
       {% for e in form.open_bottom_door.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
+{# ───────── دکمه محاسبه جدول (قبل از نمایش جدول) ───────── #}
+<div class="text-end mt-3">
+  <button class="btn btn-outline-primary" type="submit" data-stage="s1" formnovalidate>
+    محاسبه جدول
+  </button>
+</div>
+{# ───────── جدول انتخاب عرض ورق ───────── #}
+{% if best_by_width %}
+  <div class="card mt-3">
+    <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
+    <div class="card-body">
+      <p class="text-muted mb-2">
+        <strong>K15 = {{ result_preview.K15 }}</strong> |
+        <strong>E20 = {{ result_preview.E20 }}</strong> |
+        <strong>K20 = {{ result_preview.K20 }}</strong><br>
+        معیار رنگ: <span class="text-success fw-bold">سبز</span> ⇐ 0 &lt; دورریز &lt; 11 ،
+        <span class="text-danger fw-bold">قرمز</span> ⇐ سایر حالات (شامل 0 و 11).
+      </p>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle text-center">
+          <thead>
+            <tr>
+              <th>انتخاب</th>
+              <th>(cm) عرض ورق (M24)</th>
+              <th>F24 (≤ 30)</th>
+              <th>(cm) دورریز (I22)</th>
+              <th>(cm²) مصرف کارتن (E28)</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for r in best_by_width %}
+            <tr>
+              <td>
+                <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
+                       {% if request.POST.sheet_choice %}
+                         {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
+                       {% elif forloop.first %}checked{% endif %}>
+              </td>
+              <td>{{ r.sheet_width|floatformat:0 }}</td>
+              <td>{{ r.f24 }}</td>
+              <td class="{% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}text-success fw-bold{% elif r.I22 is not None %}text-danger{% else %}text-muted{% endif %}">
+                {% if r.I22 is not None %}{{ r.I22|floatformat:2 }}{% else %}—{% endif %}
+              </td>
+              <td>{% if r.E28 is not None %}{{ r.E28|floatformat:4 }}{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
     {# ── گام فلوت ── #}
     <div class="col-md-3">
       <label class="form-label" for="{{ form.D31_flute.id_for_label }}">{{ form.D31_flute.label }}</label>
@@ -171,8 +225,7 @@
       {% for e in form.D31_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
   </div>
-
-  {# ───────── ترکیب کاغذ (با شناسه برای کنترل نمایش) ───────── #}
+    {# ───────── ترکیب کاغذ (با شناسه برای کنترل نمایش) ───────── #}
   <div class="card mt-2">
     <div class="card-header">ترکیب کاغذ</div>
     <div class="card-body row g-3">
@@ -204,55 +257,7 @@
     </div>
   </div>
 
-  {# ───────── جدول انتخاب عرض ورق ───────── #}
-  {% if best_by_width %}
-    <div class="card mt-3">
-      <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
-      <div class="card-body">
-        <p class="text-muted mb-2">
-          <strong>K15 = {{ result_preview.K15 }}</strong> |
-          <strong>E20 = {{ result_preview.E20 }}</strong> |
-          <strong>K20 = {{ result_preview.K20 }}</strong><br>
-          معیار رنگ: <span class="text-success fw-bold">سبز</span> ⇐ 0 &lt; دورریز &lt; 11 ،
-          <span class="text-danger fw-bold">قرمز</span> ⇐ سایر حالات (شامل 0 و 11).
-        </p>
 
-        <div class="table-responsive">
-          <table class="table table-sm align-middle text-center">
-            <thead>
-              <tr>
-                <th>انتخاب</th>
-                <th>(cm) عرض ورق (M24)</th>
-                <th>F24 (≤ 30)</th>
-                <th>(cm) دورریز (I22)</th>
-                <th>(cm²) مصرف کارتن (E28)</th>
-              </tr>
-            </thead>
-            <tbody>
-            {% for r in best_by_width %}
-              <tr>
-                <td>
-                  <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
-                         {% if request.POST.sheet_choice %}
-                           {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
-                         {% elif forloop.first %}checked{% endif %}>
-                </td>
-                <td>{{ r.sheet_width|floatformat:0 }}</td>
-                <td>{{ r.f24 }}</td>
-                <td class="{% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}text-success fw-bold{% elif r.I22 is not None %}text-danger{% else %}text-muted{% endif %}">
-                  {% if r.I22 is not None %}{{ r.I22|floatformat:2 }}{% else %}—{% endif %}
-                </td>
-                <td>{% if r.E28 is not None %}{{ r.E28|floatformat:4 }}{% else %}—{% endif %}</td>
-              </tr>
-            {% endfor %}
-            </tbody>
-          </table>
-        </div>
-
-        <button class="btn btn-outline-primary mt-2" type="submit" data-stage="s1" formnovalidate>محاسبه جدول</button>
-      </div>
-    </div>
-  {% endif %}
 
   {# ذخیره رکورد #}
   <div class="form-check mt-3">
