@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{% if object %}ویرایش{% else %}ایجاد{% endif %} آیتم هزینهٔ سربار{% endblock %}
+{% block content %}
+<h3 class="mb-3">{% if object %}ویرایش{% else %}ایجاد{% endif %} آیتم هزینهٔ سربار</h3>
+
+<form method="post" class="card card-body">
+  {% csrf_token %}
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+      {{ form.name }}
+      {% for e in form.name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="{{ form.unit_cost.id_for_label }}">{{ form.unit_cost.label }}</label>
+      {{ form.unit_cost }}
+      {% for e in form.unit_cost.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-3 d-flex align-items-end">
+      <div class="form-check">
+        {{ form.is_active }} <label class="form-check-label" for="{{ form.is_active.id_for_label }}">{{ form.is_active.label }}</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-3 d-flex gap-2">
+    <button class="btn btn-primary" type="submit">ذخیره</button>
+    <a class="btn btn-outline-secondary" href="{% url 'carton_pricing:overhead_list' %}">بازگشت</a>
+  </div>
+</form>
+{% endblock %}

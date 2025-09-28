@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}موارد هزینهٔ سربار{% endblock %}
+{% block content %}
+<h3 class="mb-3">موارد هزینهٔ سربار</h3>
+
+<form class="row g-2 mb-3">
+  <div class="col-md-4">
+    <input type="search" name="q" value="{{ q }}" class="form-control" placeholder="جستجو در نام…">
+  </div>
+  <div class="col-md-3">
+    <select name="state" class="form-select">
+      <option value="active"   {% if state == 'active' %}selected{% endif %}>فقط فعال</option>
+      <option value="all"      {% if state == 'all' %}selected{% endif %}>همه</option>
+      <option value="inactive" {% if state == 'inactive' %}selected{% endif %}>فقط غیرفعال</option>
+    </select>
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-outline-primary w-100">فیلتر</button>
+  </div>
+  <div class="col-md-3 text-end">
+    <a class="btn btn-success" href="{% url 'carton_pricing:overhead_create' %}">+ آیتم جدید</a>
+  </div>
+</form>
+
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr><th>نام</th><th>هزینهٔ واحد</th><th>وضعیت</th><th class="text-end">عملیات</th></tr></thead>
+    <tbody>
+      {% for it in items %}
+      <tr>
+        <td>{{ it.name }}</td>
+        <td>{{ it.unit_cost }}</td>
+        <td>{% if it.is_active %}<span class="badge bg-success">فعال</span>{% else %}<span class="badge bg-secondary">غیرفعال</span>{% endif %}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'carton_pricing:overhead_update' it.pk %}">ویرایش</a>
+          <a class="btn btn-sm btn-outline-danger" href="{% url 'carton_pricing:overhead_delete' it.pk %}">حذف</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="text-center text-muted">موردی یافت نشد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+<nav aria-label="pagination">
+  <ul class="pagination justify-content-center">
+    {% if page_obj.has_previous %}
+      <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}&q={{ q }}&state={{ state }}">قبلی</a></li>
+    {% endif %}
+    <li class="page-item disabled"><span class="page-link">صفحه {{ page_obj.number }} از {{ page_obj.paginator.num_pages }}</span></li>
+    {% if page_obj.has_next %}
+      <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}&q={{ q }}&state={{ state }}">بعدی</a></li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

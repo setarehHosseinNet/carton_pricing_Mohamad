@@ -924,7 +924,8 @@ FLAG_FIELD_NAMES = [
     "flag_shipping_not_seller",
 ]
 
-
+from .models import OverheadItem
+from carton_pricing.services.area import CompositionAreaCalculator
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
     مرحله‌ای:
@@ -943,6 +944,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     # شناسه‌ی سفارشی که باید از روی آن «کپی» شود (از GET یا POST)
     copy_from = (request.GET.get("copy_from") or request.POST.get("copy_from") or "").strip()
 
+    def _overheads_qs():
+        return OverheadItem.objects.filter(is_active=True).order_by("name")
     # ───────────── helpers ─────────────
     def _truthy(v: Any) -> bool:
         return str(v).strip().lower() in {"1", "true", "t", "y", "yes", "on"}
@@ -981,7 +984,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "carton_type":     src.carton_type,
             "carton_name":     src.carton_name,
             "description":     src.description,
-            "payment_type":    src.payment_type,
+            "payment_type":    getattr(src, "payment_type", None),
             # پارامترها
             "I8_qty":            src.I8_qty or 1,
             "A1_layers":         src.A1_layers,
@@ -1000,6 +1003,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "pq_middle_layer": src.pq_middle_layer_id,
             "pq_c_flute":      src.pq_c_flute_id,
             "pq_bottom_layer": src.pq_bottom_layer_id,
+            # 🟢 جدید: مقدار اولیهٔ «درب باز پایین» از فیلد مدل E18_lip
+            "open_bottom_door": getattr(src, "E18_lip", None),
         }
         # فلگ‌های موردی (اگر روی مدل وجود دارند)
         for name in FLAG_FIELD_NAMES:
@@ -1066,13 +1071,11 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         last = (
             PriceQuotation.objects
             .filter(customer_id=customer_id)
-            .order_by("-id")  # ساده‌ترین معیار «آخرین»
+            .order_by("-id")
             .first()
         )
         if not last:
             return
-        # تاریخ آخرین سفارش به شمسی
-        # سعی می‌کنیم یکی از فیلدهای زمانی را پیدا کنیم
         last_dt = None
         for fname in ("created", "created_at", "created_on", "timestamp", "created_datetime"):
             if hasattr(last, fname):
@@ -1080,7 +1083,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                 if last_dt:
                     break
         ctx["last_order_date_jalali"] = _to_jalali(last_dt)
-        # فی و نرخ
         fee = getattr(last, "Fee_amount", None)
         price = getattr(last, "E48_price_with_tax", None) or getattr(last, "H46_price_before_tax", None)
         if fee is not None:
@@ -1095,6 +1097,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "payment_type": "cash",
             "has_print_notes": False,
             "tech_shipping_on_customer": False,
+            # 🟢 پیش‌فرض برای «درب باز پایین»
+            "open_bottom_door": None,
         }
         if src_order:
             initial.update(_initial_from_order(src_order))
@@ -1106,6 +1110,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         # پر کردن کانتکست تاریخ‌ها و آخرین سفارش
         _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
 
+
         ctx.update({
             "form": form,
             "ui_stage": "s1",
@@ -1115,6 +1120,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "locked_customer": getattr(form, "display_customer", None),
             "locked_phone": form.initial.get("contact_phone") or "",
             "copy_from": copy_from,
+            "overheads": _overheads_qs(),
         })
         return render(request, "carton_pricing/price_form.html", ctx)
 
@@ -1127,6 +1133,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         "locked_customer": getattr(form, "display_customer", None),
         "locked_phone": form.initial.get("contact_phone") or "",
         "copy_from": copy_from,
+        "overheads": _overheads_qs(),
     })
     if not form.is_valid():
         # تاریخ‌ها حتی در خطا هم نمایش داده شود
@@ -1262,6 +1269,16 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     # E20 نهایی
     var["E20"] = as_num(var.get("E20") or RowCalcs.e20_row(var, eng_final), 0.0)
     obj.E20_industrial_len = q2(var["E20"], "0.01")
+    # داخل price_form_view، پس از تعیین var["E20"] و validate فرم:
+
+
+    calc = CompositionAreaCalculator.from_cleaned(form.cleaned_data, e20_cm=var.get("E20"))
+    total_area_m2 = calc.total_m2
+    breakdown = calc.breakdown
+
+    # اگر لازم دارید در قالب نمایش دهید:
+    ctx["layers_area_total"] = total_area_m2  # جمع کل m²
+    ctx["layers_area_breakdown"] = breakdown  # لیست LayerArea ها (نام/عرض/…)
 
     # ───────────── 12) Fee_amount ─────────────
     base_fee = as_num(var.get("sheet_price"), 0.0)
@@ -1296,13 +1313,13 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         with transaction.atomic():
             if getattr(obj, "E17_lip", None) in (None, ""):
                 obj.E17_lip = q2(var["E17"], "0.01")
-            if hasattr(obj, "open_bottom_door") and ("open_bottom_door" in cd):
-                try:
-                    bot = as_num_or_none(cd.get("open_bottom_door"))
-                    if bot is not None:
-                        obj.open_bottom_door = q2(bot, "0.01")
-                except Exception:
-                    pass
+            # 🟢 جدید: مقدار «درب باز پایین» فرم را در فیلد مدل E18_lip ذخیره کن
+            try:
+                bot = as_num_or_none(cd.get("open_bottom_door"))
+                if bot is not None and hasattr(obj, "E18_lip"):
+                    obj.E18_lip = q2(bot, "0.01")
+            except Exception:
+                pass
             obj.save()
         messages.success(request, "برگه قیمت ذخیره شد.")
 

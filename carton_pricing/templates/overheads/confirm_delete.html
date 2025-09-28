@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}حذف آیتم هزینهٔ سربار{% endblock %}
+{% block content %}
+<h3 class="mb-3">حذف آیتم هزینهٔ سربار</h3>
+<div class="alert alert-warning">
+  آیا از حذف <strong>{{ object.name }}</strong> با هزینهٔ واحد <strong>{{ object.unit_cost }}</strong> مطمئن هستید؟
+</div>
+<form method="post">
+  {% csrf_token %}
+  <button class="btn btn-danger" type="submit">بله، حذف شود</button>
+  <a class="btn btn-outline-secondary" href="{% url 'carton_pricing:overhead_list' %}">انصراف</a>
+</form>
+{% endblock %}

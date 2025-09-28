@@ -269,7 +269,8 @@ class PriceQuotation(TimeStamped):
     G15_wid = models.DecimalField("عرض (G15, cm)", max_digits=10, decimal_places=2)
     I15_hgt = models.DecimalField("ارتفاع (I15, cm)", max_digits=10, decimal_places=2)
 
-    E17_lip = models.DecimalField("لب درب (E17, cm)", max_digits=10, decimal_places=2, default=0)
+    E17_lip = models.DecimalField("لب درب بالا(E17, cm)", max_digits=10, decimal_places=2, default=0)
+    E18_lip = models.DecimalField("لب درب پایین(E18, cm)", max_digits=10, decimal_places=2, default=0)
 
     # گام فلوت (مستقل)
     D31_flute = models.ForeignKey(
@@ -333,49 +334,145 @@ class PriceQuotation(TimeStamped):
         return f"برگه قیمت #{self.id} — {self.customer} — {date}"
 
 
-from django.db import models
+from decimal import Decimal
+from django.db import models, transaction
+from django.core.validators import MinValueValidator
+
 
 class ExtraCharge(models.Model):
     """بندهای اضافی که می‌خواهیم روی برگه/فاکتور اعمال شوند."""
     title = models.CharField(
         max_length=120,
-        verbose_name="بندهای اضافی به مبلغ"
+        verbose_name="بندهای اضافی به مبلغ",
     )
+
     amount_cash = models.DecimalField(
         max_digits=12, decimal_places=2, default=0,
-        verbose_name="مبلغ برای نقد"
+        validators=[MinValueValidator(0)],
+        verbose_name="مبلغ برای نقد",
     )
     amount_credit = models.DecimalField(
         max_digits=12, decimal_places=2, default=0,
-        verbose_name="مبلغ برای مدت‌دار"
+        validators=[MinValueValidator(0)],
+        verbose_name="مبلغ برای مدت‌دار",
     )
+
     is_required = models.BooleanField(
         default=False,
-        verbose_name="اجبار برای اعمال"
+        verbose_name="اجبار برای اعمال",
     )
+
+    priority = models.PositiveIntegerField(
+        "اولویت محاسبه",
+        unique=True,
+        null=True, blank=True,            # اگر خالی باشد، خودکار پر می‌شود
+        validators=[MinValueValidator(1)],
+        db_index=True,
+        help_text="عدد کوچکتر یعنی زودتر محاسبه شود (یکتا).",
+    )
+
     show_on_invoice = models.BooleanField(
         default=True,
-        verbose_name="نمایش به عنوان یک بند در فاکتور"
+        verbose_name="نمایش به عنوان یک بند در فاکتور",
     )
+
+    # توجه: به درخواست شما نام فیلد عیناً حفظ شده است (با P بزرگ)
+    Percentage = models.BooleanField(
+        default=False,
+        verbose_name="محاسبه درصد",
+        help_text="اگر فعال باشد، مقدار نقد/مدت به‌عنوان درصد از مبلغ پایه در نظر گرفته می‌شود.",
+    )
+
     is_active = models.BooleanField(
         default=True,
-        verbose_name="فعال؟"
+        verbose_name="فعال؟",
     )
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="ایجاد")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="ویرایش")
+    updated_at = models.DateTimeField(auto_now=True,  verbose_name="ویرایش")
 
     class Meta:
         verbose_name = "بند اضافی"
         verbose_name_plural = "بندهای اضافی"
-        ordering = ("-is_active", "title")
+        # ابتدا بر اساس اولویت (صعودی)، سپس فعال بودن، بعد عنوان
+        ordering = ("priority", "-is_active", "title")
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount_cash__gte=0),
+                name="extracharge_amount_cash_gte_0",
+            ),
+            models.CheckConstraint(
+                check=models.Q(amount_credit__gte=0),
+                name="extracharge_amount_credit_gte_0",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.title
 
-    def amount_for(self, settlement: str) -> float:
+    # ---------- اولویت خودکار یکتا ----------
+    @classmethod
+    def next_priority(cls) -> int:
+        """اولویت بعدی را با گام 10 تولید می‌کند (برای درج‌های میان‌راهی جا بماند)."""
+        last = (
+            cls.objects
+            .exclude(priority__isnull=True)
+            .order_by("-priority")
+            .first()
+        )
+        return (last.priority if last and last.priority else 0) + 10
+
+    def save(self, *args, **kwargs):
+        # اگر کاربر چیزی وارد نکرد، خودکار مقدار یکتا تعیین کن
+        if self.priority is None:
+            with transaction.atomic():
+                self.priority = type(self).next_priority()
+        super().save(*args, **kwargs)
+
+    # ---------- محاسبه مبلغ بر اساس نوع تسویه ----------
+    def amount_for(self, settlement: str, base_amount: Decimal | float | int | None = None) -> Decimal:
         """
         settlement: 'cash' یا 'credit'
+        اگر Percentage روشن باشد، amount_* به‌عنوان درصد از base_amount اعمال می‌شود.
         """
-        return float(self.amount_credit if (settlement or "").lower() == "credit"
-                     else self.amount_cash)
+        is_credit = (settlement or "").lower() == "credit"
+        raw = self.amount_credit if is_credit else self.amount_cash
+
+        if self.Percentage:
+            base = Decimal(str(base_amount or 0))
+            rate = Decimal(str(raw or 0))  # درصد
+            return (base * rate / Decimal("100")).quantize(Decimal("0.01"))
+        else:
+            return Decimal(str(raw or 0))
+
+
+from django.core.validators import MinValueValidator
+from django.db import models
+
+class OverheadItem(models.Model):
+    name = models.CharField(
+        "نام هزینه",
+        max_length=120,
+        unique=True,
+        help_text="سلفون،تسمه پالت،تسمه کارت،مرکب،منگنه"
+    )
+    unit_cost = models.DecimalField(
+        "هزینهٔ واحد",
+        max_digits=12,
+        decimal_places=0,
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text="مبلغ به واحد پولی سیستم؛ نمی‌تواند منفی باشد."
+    )
+    is_active = models.BooleanField("فعال؟", default=True)
+
+    created_at = models.DateTimeField("ایجاد", auto_now_add=True)
+    updated_at = models.DateTimeField("ویرایش", auto_now=True)
+
+    class Meta:
+        verbose_name = "آیتم هزینهٔ سربار"
+        verbose_name_plural = "موارد هزینهٔ سربار"
+        ordering = ("-is_active", "name")
+
+    def __str__(self) -> str:
+        return f"{self.name} — {self.unit_cost}"

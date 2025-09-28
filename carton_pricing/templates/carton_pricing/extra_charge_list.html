@@ -22,6 +22,7 @@
           <th>نقد</th>
           <th>مدت‌دار</th>
           <th>اجباری؟</th>
+            <th>درصد/مبلغ</th>
           <th>نمایش در فاکتور؟</th>
           <th>وضعیت</th>
           <th style="width:150px">عملیات</th>
@@ -34,6 +35,7 @@
             <td>{{ it.amount_cash|floatformat:2 }}</td>
             <td>{{ it.amount_credit|floatformat:2 }}</td>
             <td>{% if it.is_required %}✔{% else %}—{% endif %}</td>
+             <td>{% if it.Percentage %}✔{% else %}—{% endif %}</td>
             <td>{% if it.show_on_invoice %}✔{% else %}—{% endif %}</td>
             <td>
               <span class="badge {% if it.is_active %}bg-success{% else %}bg-secondary{% endif %}">

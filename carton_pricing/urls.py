@@ -29,7 +29,12 @@ from .views_papers import (
     paper_create_view,
     paper_update_view,
 )
-
+from .views_overheads import (
+    OverheadItemListView,
+    OverheadItemCreateView,
+    OverheadItemUpdateView,
+    OverheadItemDeleteView,
+)
 app_name = "carton_pricing"
 
 urlpatterns = [
@@ -74,4 +79,10 @@ urlpatterns = [
     path("extra-charges/new/",           ec.ExtraChargeCreate.as_view(), name="extracharge_create"),
     path("extra-charges/<int:pk>/edit/", ec.ExtraChargeUpdate.as_view(), name="extracharge_update"),
     path("extra-charges/<int:pk>/delete/", ec.ExtraChargeDelete.as_view(), name="extracharge_delete"),
+
+    # ─────────  هزینه سربار ─────────
+    path("overheads/", OverheadItemListView.as_view(), name="overhead_list"),
+    path("overheads/new/", OverheadItemCreateView.as_view(), name="overhead_create"),
+    path("overheads/<int:pk>/edit/", OverheadItemUpdateView.as_view(), name="overhead_update"),
+    path("overheads/<int:pk>/delete/", OverheadItemDeleteView.as_view(), name="overhead_delete"),
 ]

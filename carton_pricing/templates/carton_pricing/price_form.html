@@ -163,6 +163,27 @@
       {{ form.open_bottom_door }}
       {% for e in form.open_bottom_door.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
+{# ── هزینه‌های سربار (اختیاری) ── #}
+<div class="col-12">
+  <div class="card mt-2">
+    <div class="card-header">هزینه‌های سربار (اختیاری)</div>
+    <div class="card-body">
+      <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2">
+        {% for oh in overheads %}
+          <label class="form-check col d-flex align-items-center gap-2">
+            <input class="form-check-input" type="checkbox" name="oh_{{ oh.id }}" value="1">
+            <span class="ms-1">
+              {{ oh.name }}
+              <span class="text-muted small">— {{ oh.unit_cost|floatformat:2 }}</span>
+            </span>
+          </label>
+        {% empty %}
+          <div class="text-muted">هیچ هزینهٔ سرباری ثبت نشده است.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
 
 {# ───────── دکمه محاسبه جدول (قبل از نمایش جدول) ───────── #}
 <div class="text-end mt-3">
@@ -257,21 +278,15 @@
     </div>
   </div>
 
-
-
-  {# ذخیره رکورد #}
-  <div class="form-check mt-3">
-    {{ form.save_record }} {{ form.save_record.label_tag }}
-  </div>
-
-  {# دکمه محاسبه نهایی #}
+{# دکمه محاسبه نهایی #}
   <div class="mt-3">
     <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
       <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-      محاسبه نهایی
+      محاسبه
     </button>
-  </div>
-</form>
+
+
+
 
 {# ───────── نتیجه ───────── #}
 {% if ui_stage == 'final' %}
@@ -299,8 +314,40 @@
       </div>
     </div>
   </div>
+      {# ذخیره رکورد #}
+  <div class="form-check mt-3">
+    {{ form.save_record }} {{ form.save_record.label_tag }}
+  </div>
+ {# دکمه محاسبه نهایی #}
+  <div class="mt-3">
+    <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
+      <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+      محاسبه نهایی
+    </button>
+  </div>
+</form>
 {% endif %}
-
+{% if layers_area_breakdown %}
+  <div class="table-responsive mt-3">
+    <table class="table table-sm text-center">
+      <thead><tr><th>لایه</th><th>کاغذ</th><th>عرض (cm)</th><th>E20 (cm)</th><th>مساحت (m²)</th></tr></thead>
+      <tbody>
+      {% for r in layers_area_breakdown %}
+        <tr>
+          <td>{{ r.field }}</td>
+          <td>{{ r.name }}</td>
+          <td>{{ r.width_cm }}</td>
+          <td>{{ r.e20_cm }}</td>
+          <td>{{ r.area_m2 }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="fw-bold"><td colspan="4">جمع کل</td><td>{{ layers_area_total }}</td></tr>
+      </tfoot>
+    </table>
+  </div>
+{% endif %}
 <script>
 (function () {
   "use strict";

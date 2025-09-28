@@ -502,21 +502,46 @@ class ExtraChargeForm(forms.ModelForm):
         model = ExtraCharge
         fields = [
             "title", "amount_cash", "amount_credit",
-            "is_required", "show_on_invoice", "is_active",
+            "is_required", "show_on_invoice","priority","Percentage", "is_active",
         ]
         labels = {
             "title": "بندهای اضافی به مبلغ",
             "amount_cash": "مبلغ برای نقد",
             "amount_credit": "مبلغ برای مدت‌دار",
+            "priority":"عدد کوچکتر یعنی زودتر محاسبه شود (یکتا)",
             "is_required": "اجبار برای اعمال",
             "show_on_invoice": "نمایش به عنوان یک بند در فاکتور",
+            "Percentage":"بصورت درصدی از کل محاسبه شود",
             "is_active": "فعال؟",
+
         }
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
             "amount_cash": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
             "amount_credit": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "priority": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
             "is_required": forms.CheckboxInput(attrs={"class": "form-check-input"}),
             "show_on_invoice": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "Percentage": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+
+
+
+from django import forms
+from .models import OverheadItem
+
+class OverheadItemForm(forms.ModelForm):
+    class Meta:
+        model = OverheadItem
+        fields = ["name", "unit_cost", "is_active"]
+        labels = {
+            "name": "نام هزینه",
+            "unit_cost": "هزینهٔ واحد",
+            "is_active": "فعال؟",
+        }
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "unit_cost": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
             "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }

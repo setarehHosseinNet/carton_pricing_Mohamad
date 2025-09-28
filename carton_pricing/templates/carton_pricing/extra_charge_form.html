@@ -23,13 +23,21 @@
       {{ form.amount_credit }}
       {% for e in form.amount_credit.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
-
+ <div class="col-md-3">
+      <label class="form-label" for="{{ form.priority.id_for_label }}">{{ form.priority.label }}</label>
+      {{ form.priority  }}
+      {% for e in form.priority.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    </div>
     <div class="col-12 d-flex flex-wrap gap-4 mt-2">
       <label class="form-check">
         {{ form.is_required }} <span class="ms-1">{{ form.is_required.label }}</span>
       </label>
       <label class="form-check">
         {{ form.show_on_invoice }} <span class="ms-1">{{ form.show_on_invoice.label }}</span>
+      </label>
+
+      <label class="form-check">
+        {{ form.Percentage }} <span class="ms-1">{{ form.Percentage.label }}</span>
       </label>
       <label class="form-check">
         {{ form.is_active }} <span class="ms-1">{{ form.is_active.label }}</span>

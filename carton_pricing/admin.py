@@ -296,3 +296,14 @@ from .models import Paper
 #     list_display = ("name_paper", "group", "grammage_gsm", "width_cm", "unit_price", "shipping_cost", "unit_amount")
 #     list_filter = ("group",)
 #     search_fields = ("name_paper",)
+
+
+from django.contrib import admin
+from .models import OverheadItem
+
+@admin.register(OverheadItem)
+class OverheadItemAdmin(admin.ModelAdmin):
+    list_display = ("name", "unit_cost", "is_active")
+    list_filter  = ("is_active",)
+    search_fields = ("name",)
+    ordering = ("name",)
