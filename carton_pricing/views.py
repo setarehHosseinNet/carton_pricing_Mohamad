@@ -924,28 +924,32 @@ FLAG_FIELD_NAMES = [
     "flag_shipping_not_seller",
 ]
 
-from .models import OverheadItem
+from .models import OverheadItem,ExtraCharge
 from carton_pricing.services.area import CompositionAreaCalculator
+# carton_pricing/views.py  (بازنویسی همان تابع، بدون حذف سایر بخش‌ها)
+
+from decimal import Decimal
+...
+from .models import Paper, ExtraCharge, OverheadItem, PriceQuotation
+from .services.area import CompositionAreaCalculator
+from .utils import q2, as_num, as_num_or_none
+...
+
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
     مرحله‌ای:
       s1   : گرفتن A1..A4 و E15,G15,I15 ⇒ ساخت جدول (انتخاب | M24 | F24 | I22 | E28)
       final: بعد از انتخاب ردیف ⇒ محاسبات نهایی و نگاشت به مدل
-
-    نکات:
-    - «نام مشتری» و «شماره تماس» از روی سفارش انتخاب‌شده (copy_from) قفل می‌شوند
-      و به‌صورت Hidden ارسال می‌گردند (در قالب، لیبل نمایش دهید).
-    - تاریخ‌های شمسی و اطلاعات آخرین سفارش مشتری در کانتکست گذاشته می‌شود.
     """
     # ───────────── 0) Settings & Context ─────────────
     bs = SettingsLoader.load_latest()
     ctx: Dict[str, Any] = {"settings": bs}
 
-    # شناسه‌ی سفارشی که باید از روی آن «کپی» شود (از GET یا POST)
     copy_from = (request.GET.get("copy_from") or request.POST.get("copy_from") or "").strip()
 
     def _overheads_qs():
         return OverheadItem.objects.filter(is_active=True).order_by("name")
+
     # ───────────── helpers ─────────────
     def _truthy(v: Any) -> bool:
         return str(v).strip().lower() in {"1", "true", "t", "y", "yes", "on"}
@@ -974,7 +978,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         return timezone.localtime().strftime("%Y-%m-%d")
 
     def _initial_from_order(src: PriceQuotation) -> dict:
-        """Initial کامل فرم بر اساس یک سفارش موجود (به‌علاوه‌ی فلگ‌ها)."""
         data = {
             # سربرگ
             "customer":        src.customer_id,
@@ -997,28 +1000,23 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "E17_lip":           src.E17_lip,
             "D31_flute":         src.D31_flute,
             "E46_round_adjust":  src.E46_round_adjust,
-            # انتخاب کاغذها
+            # کاغذها
             "pq_glue_machine": src.pq_glue_machine_id,
             "pq_be_flute":     src.pq_be_flute_id,
             "pq_middle_layer": src.pq_middle_layer_id,
             "pq_c_flute":      src.pq_c_flute_id,
             "pq_bottom_layer": src.pq_bottom_layer_id,
-            # 🟢 جدید: مقدار اولیهٔ «درب باز پایین» از فیلد مدل E18_lip
+            # «درب باز پایین»
             "open_bottom_door": getattr(src, "E18_lip", None),
         }
-        # فلگ‌های موردی (اگر روی مدل وجود دارند)
         for name in FLAG_FIELD_NAMES:
             if hasattr(src, name):
                 data[name] = _truthy(getattr(src, name))
-        # چک‌باکس چاپ/نکات تبدیل (اگر دارید)
         if hasattr(src, "has_print_notes"):
             data["has_print_notes_bool"] = _truthy(getattr(src, "has_print_notes"))
         return data
 
     def _build_form(initial: dict | None = None) -> PriceForm:
-        """
-        سازنده‌ی فرم؛ در POST هم initial تزریق می‌شود تا Hiddenها مقدار بگیرند.
-        """
         f = PriceForm(request.POST, initial=initial) if request.method == "POST" else PriceForm(initial=initial)
         if "E17_lip" in f.fields:
             f.fields["E17_lip"].required = False
@@ -1031,7 +1029,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         return "credit" if pay == "credit" else "cash"
 
     def _seed_vars(cd: dict) -> dict[str, Any]:
-        """ورودی‌های خام فرم ⇒ env اولیه برای موتور فرمول‌ها."""
         v: dict[str, Any] = {
             "A1": int(cd.get("A1_layers") or 0),
             "A2": int(cd.get("A2_pieces") or 0),
@@ -1042,25 +1039,21 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "I15": as_num(cd.get("I15_hgt") or request.POST.get("I15_hgt"), 0.0),
             "I8":  as_num(cd.get("I8_qty"), 0.0),
             "E46": as_num(cd.get("E46_round_adjust"), 0.0),
-            "E17": as_num(cd.get("E17_lip"), 0.0),  # seed موقت؛ پایین‌تر بازنویسی می‌شود
+            "E17": as_num(cd.get("E17_lip"), 0.0),
         }
         a6_str = f'{v["A1"]}{v["A2"]}{v["A3"]}{v["A4"]}'
         v["A6"] = int(a6_str) if a6_str.isdigit() else 0
         ctx["a6"] = a6_str
         return v
 
-    # اگر «کپی از سفارش» داریم، initial قفل برای customer/phone + پیش‌فرض فلگ‌ها آماده کن
+    # قفل از سفارش
     lock_initial: dict | None = None
     src_order: Optional[PriceQuotation] = None
     if copy_from.isdigit():
         src_order = PriceQuotation.objects.filter(pk=int(copy_from)).first()
         if src_order:
-            lock_initial = {
-                "customer": src_order.customer_id,
-                "contact_phone": src_order.contact_phone,
-            }
+            lock_initial = {"customer": src_order.customer_id, "contact_phone": src_order.contact_phone}
 
-    # داده‌های آخرین سفارش مشتری (برای نمایش)
     def _fill_last_order_context(customer_id: Optional[int]):
         ctx["today_jalali"] = _today_jalali()
         ctx["last_order_date_jalali"] = "—"
@@ -1068,12 +1061,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         ctx["last_order_price"] = "—"
         if not customer_id:
             return
-        last = (
-            PriceQuotation.objects
-            .filter(customer_id=customer_id)
-            .order_by("-id")
-            .first()
-        )
+        last = PriceQuotation.objects.filter(customer_id=customer_id).order_by("-id").first()
         if not last:
             return
         last_dt = None
@@ -1090,14 +1078,13 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         if price is not None:
             ctx["last_order_price"] = price
 
-    # ───────────── 1) GET: فرم (با کپی از سفارش در صورت وجود) ─────────────
+    # ───────────── 1) GET ─────────────
     if request.method != "POST":
         initial: dict = {
             "A1_layers": 1, "A2_pieces": 1, "A3_door_type": 1, "A4_door_count": 1,
             "payment_type": "cash",
             "has_print_notes": False,
             "tech_shipping_on_customer": False,
-            # 🟢 پیش‌فرض برای «درب باز پایین»
             "open_bottom_door": None,
         }
         if src_order:
@@ -1106,17 +1093,13 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             initial.update(lock_initial)
 
         form = _build_form(initial=initial)
-
-        # پر کردن کانتکست تاریخ‌ها و آخرین سفارش
         _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
-
 
         ctx.update({
             "form": form,
             "ui_stage": "s1",
             "show_table": False,
             "show_papers": False,
-            # نمایش نام مشتری و شماره قفل‌شده در UI
             "locked_customer": getattr(form, "display_customer", None),
             "locked_phone": form.initial.get("contact_phone") or "",
             "copy_from": copy_from,
@@ -1136,7 +1119,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         "overheads": _overheads_qs(),
     })
     if not form.is_valid():
-        # تاریخ‌ها حتی در خطا هم نمایش داده شود
         _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
         ctx["errors"] = form.errors
         return render(request, "carton_pricing/price_form.html", ctx)
@@ -1144,7 +1126,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     cd = form.cleaned_data
     obj: PriceQuotation = form.save(commit=False)
 
-    # تحمیل قفل‌ها (در برابر POST دستکاری‌شده)
     if lock_initial:
         if lock_initial.get("customer"):
             obj.customer_id = lock_initial["customer"]
@@ -1160,27 +1141,20 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     obj.A6_sheet_code = var["A6"]
     SettingsLoader.inject(bs, settlement, var, cd)
 
-    # ───────────── 4) موتور فرمول ─────────────
+    # ───────────── 4) موتور فرمول (فقط برای ابعاد/جدول) ─────────────
     formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormula.objects.all()}
     eng = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))
 
     # ───────────── 5) محاسبۀ E17 ─────────────
     tail = (var["A6"] % 100) if var["A6"] else 0
-    var["E17"] = E17Calculator.compute(
-        tail=tail,
-        g15=as_num(var.get("G15"), 0.0),
-        cd=cd,
-        stage=stage,
-        eng=eng,
-        form=form,
-    )
+    var["E17"] = E17Calculator.compute(tail=tail, g15=as_num(var.get("G15"), 0.0), cd=cd, stage=stage, eng=eng, form=form)
     try:
         obj.E17_lip = q2(var["E17"], "0.01")
     except Exception:
         pass
 
     # ───────────── 6) I17 و K15 (با fallback) ─────────────
-    eng = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))  # rebuild با E17 جدید
+    eng = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))  # rebuild
     var["I17"] = as_num(eng.get("I17"), as_num(var.get("E15"), 0.0) + as_num(var.get("G15"), 0.0) + 3.5)
 
     fixed_widths = bs.fixed_widths or [80, 90, 100, 110, 120, 125, 140]
@@ -1191,11 +1165,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     k20_preview = as_num(eng.get("K20"), 0.0) or 0.0
 
     # ───────────── 8) جدول مرحله ۱ ─────────────
-    rows: list[TableRow] = TableBuilder.build_rows(
-        k15=float(var["K15"]), widths=fixed_widths, env_base=var, eng=eng
-    )
+    rows: list[TableRow] = TableBuilder.build_rows(k15=float(var["K15"]), widths=fixed_widths, env_base=var, eng=eng)
     ctx["best_by_width"] = [r.__dict__ for r in rows]
-
     if k20_preview <= 0 and rows:
         k20_preview = as_num(var.get("K15"), 0.0) * float(rows[0].f24)
 
@@ -1205,7 +1176,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         "K20": q2(as_num(k20_preview, 0.0), "0.01"),
     }
 
-    # تاریخ‌ها و آخرین سفارش برای نمایش در همین مرحله
     _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
 
     # ───────────── 9) نمایش مرحله ۱ ─────────────
@@ -1228,14 +1198,12 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # قفل انتخاب در env
     var["M24"] = float(chosen.sheet_width)
     var["sheet_width"] = float(chosen.sheet_width)
     var["F24"] = float(max(1, int(chosen.f24)))
     var["I22"] = float(chosen.I22 or 0.0)
     var["E28"] = float(chosen.E28 or 0.0)
 
-    # نگاشت مستقیم به مدل
     obj.chosen_sheet_width  = q2(var["M24"], "0.01")
     obj.F24_per_sheet_count = int(var["F24"])
     obj.waste_warning       = bool((chosen.I22 is not None) and chosen.I22 >= 11.0)
@@ -1243,14 +1211,13 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
 
     # ───────────── 11) موتور نهایی + K20 ─────────────
     eng_final = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))
-
     k20_val = as_num(eng_final.get("K20"), 0.0)
     if k20_val <= 0:
         k20_val = as_num(var.get("F24"), 0.0) * as_num(var.get("K15"), 0.0)
     var["K20"] = k20_val
     obj.K20_industrial_wid = q2(k20_val, "0.01")
 
-    # سایر خروجی‌ها (به جز بلوک‌های ثابت)
+    # حلقۀ همگرایی سایر فرمول‌ها (به‌جز بلوک‌های ثابت)
     BLOCK: set[str] = {"E17", "K15", "F24", "M24", "sheet_width", "I22", "E28", "K20"}
     for _ in range(8):
         changed = False
@@ -1269,51 +1236,129 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     # E20 نهایی
     var["E20"] = as_num(var.get("E20") or RowCalcs.e20_row(var, eng_final), 0.0)
     obj.E20_industrial_len = q2(var["E20"], "0.01")
-    # داخل price_form_view، پس از تعیین var["E20"] و validate فرم:
 
-
+    # ───────────── محاسبۀ متراژ کاغذهای انتخابی (m²)
     calc = CompositionAreaCalculator.from_cleaned(form.cleaned_data, e20_cm=var.get("E20"))
     total_area_m2 = calc.total_m2
     breakdown = calc.breakdown
+    ctx["layers_area_total"] = total_area_m2
+    ctx["layers_area_breakdown"] = breakdown
 
-    # اگر لازم دارید در قالب نمایش دهید:
-    ctx["layers_area_total"] = total_area_m2  # جمع کل m²
-    ctx["layers_area_breakdown"] = breakdown  # لیست LayerArea ها (نام/عرض/…)
+    # ───────────── 12) Fee_amount + E41 + E40 ─────────────
+    def _price_from_choice(val) -> Decimal:
+        if not val:
+            return Decimal("0")
+        try:
+            if isinstance(val, Paper):
+                return Decimal(val.unit_price or 0)
+            p = Paper.objects.only("unit_price").get(pk=val)
+            return Decimal(p.unit_price or 0)
+        except Exception:
+            return Decimal("0")
 
-    # ───────────── 12) Fee_amount ─────────────
-    base_fee = as_num(var.get("sheet_price"), 0.0)
-    if base_fee <= 0:
-        base_fee = as_num(bs.sheet_price_credit if settlement == "credit" else bs.sheet_price_cash, 0.0)
-        if base_fee <= 0:
-            try:
-                base_fee = as_num((bs.custom_vars or {}).get("Fee_amount"), 1.0)
-            except Exception:
-                base_fee = 1.0
-    var["Fee_amount"] = float(base_fee)
-    ctx["fee_amount"]  = float(base_fee)
+    fee_per_m2 = (
+        _price_from_choice(cd.get("pq_glue_machine")) +
+        _price_from_choice(cd.get("pq_be_flute")) +
+        _price_from_choice(cd.get("pq_middle_layer")) +
+        _price_from_choice(cd.get("pq_c_flute")) +
+        _price_from_choice(cd.get("pq_bottom_layer"))
+    ).quantize(Decimal("0.01"))
+
+    var["Fee_amount"] = float(fee_per_m2)
+    ctx["fee_amount"] = float(fee_per_m2)
     try:
-        setattr(obj, "Fee_amount", Decimal(str(var["Fee_amount"])))
+        setattr(obj, "Fee_amount", fee_per_m2)
     except Exception:
         pass
 
-    # ───────────── 13) نگاشت به مدل ─────────────
+    # E41 = Fee_amount × E38
+    E38_m2 = Decimal(str(var.get("E38", total_area_m2 or 0.0)))
+    E41_val = (fee_per_m2 * E38_m2).quantize(Decimal("0.01"))
+    var["E41"] = float(E41_val)
+    obj.E41_sheet_working_cost = E41_val
+
+    # ── E40 از ExtraCharge ها (به‌جز «سود فاکتور»)
+    PROFIT_KW = "سود فاکتور"
+    all_charges = ExtraCharge.objects.filter(is_active=True).order_by("priority", "id")
+    charges_for_overhead = [ch for ch in all_charges if PROFIT_KW not in (ch.title or "")]
+
+    # ثابت‌ها
+    overhead_fixed_per_m2 = Decimal("0.00")
+    for ch in charges_for_overhead:
+        if not ch.Percentage:
+            add_per_m2 = (fee_per_m2 + Decimal(str(ch.amount_cash or 0))).quantize(Decimal("0.01"))
+            overhead_fixed_per_m2 += add_per_m2
+    E40_fixed_total = (overhead_fixed_per_m2 * E38_m2).quantize(Decimal("0.01"))
+
+    # ── سود (فقط «سود فاکتور») از OverheadItem یا ExtraCharge
+    def _profit_amount(base_amount: Decimal) -> Decimal:
+        total = Decimal("0.00")
+        # 1) OverheadItem با نام شامل «سود فاکتور»
+        qs1 = OverheadItem.objects.filter(is_active=True, name__icontains=PROFIT_KW)
+        for it in qs1:
+            rate = Decimal(str(getattr(it, "unit_cost", 0) or 0))
+            total += (base_amount * rate / Decimal("100"))
+        # 2) اگر چیزی نبود/یا علاوه بر آن، از ExtraCharge با عنوان «سود فاکتور»
+        qs2 = ExtraCharge.objects.filter(is_active=True, title__icontains=PROFIT_KW)
+        for ch in qs2:
+            if ch.Percentage:
+                rate = Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
+                total += (base_amount * rate / Decimal("100"))
+            else:
+                total += Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
+        return total.quantize(Decimal("0.01"))
+
+    # H46 موقت برای درصدی‌های سربار
+    M40_provisional = (E41_val + E40_fixed_total).quantize(Decimal("0.01"))
+    M41_provisional = _profit_amount(M40_provisional)
+    H46_provisional = (M40_provisional + M41_provisional).quantize(Decimal("0.01"))
+
+    # درصدی‌های سربار (به‌جز «سود فاکتور»)
+    overhead_percent_total = Decimal("0.00")
+    for ch in charges_for_overhead:
+        if ch.Percentage:
+            rate = Decimal(str(ch.amount_cash or 0))
+            overhead_percent_total += (H46_provisional * rate / Decimal("100"))
+    overhead_percent_total = overhead_percent_total.quantize(Decimal("0.01"))
+
+    # E40 نهایی
+    E40_val = (E40_fixed_total + overhead_percent_total).quantize(Decimal("0.01"))
+    var["E40"] = float(E40_val)
+    obj.E40_overhead_cost = E40_val
+
+    # ── M40، M41، H46 نهایی
+    M40_final = (E41_val + E40_val).quantize(Decimal("0.01"))
+    var["M40"] = float(M40_final)
+    obj.M40_total_cost = M40_final
+
+    M41_val = _profit_amount(M40_final)
+    var["M41"] = float(M41_val)
+    obj.M41_profit_amount = M41_val
+
+    H46_val = (M40_final + M41_val).quantize(Decimal("0.01"))
+    var["H46"] = float(H46_val)
+    obj.H46_price_before_tax = H46_val
+
+    # مالیات و قیمت با مالیات
+    tax_percent = Decimal(str((getattr(bs, "custom_vars", {}) or {}).get("tax_percent", 9)))
+    J48_val = (H46_val * tax_percent / Decimal("100")).quantize(Decimal("0.01"))
+    var["J48"] = float(J48_val)
+    obj.J48_tax = J48_val
+
+    E48_val = (H46_val + J48_val).quantize(Decimal("0.01"))
+    var["E48"] = float(E48_val)
+    obj.E48_price_with_tax = E48_val
+
+    # مابقی نگاشت‌ها
     obj.E28_carton_consumption = q2(var.get("E28", 0.0), "0.0001")
     obj.E38_sheet_area_m2      = q2(var.get("E38", 0.0), "0.0001")
     obj.I38_sheet_count        = int(math.ceil(var.get("I38", 0.0)))
-    obj.E41_sheet_working_cost = q2(var.get("E41", 0.0), "0.01")
-    obj.E40_overhead_cost      = q2(var.get("E40", 0.0), "0.01")
-    obj.M40_total_cost         = q2(var.get("M40", 0.0), "0.01")
-    obj.M41_profit_amount      = q2(var.get("M41", 0.0), "0.01")
-    obj.H46_price_before_tax   = q2(var.get("H46", 0.0), "0.01")
-    obj.J48_tax                = q2(var.get("J48", 0.0), "0.01")
-    obj.E48_price_with_tax     = q2(var.get("E48", 0.0), "0.01")
 
     # ───────────── 14) ذخیرهٔ اختیاری ─────────────
     if cd.get("save_record"):
         with transaction.atomic():
             if getattr(obj, "E17_lip", None) in (None, ""):
                 obj.E17_lip = q2(var["E17"], "0.01")
-            # 🟢 جدید: مقدار «درب باز پایین» فرم را در فیلد مدل E18_lip ذخیره کن
             try:
                 bot = as_num_or_none(cd.get("open_bottom_door"))
                 if bot is not None and hasattr(obj, "E18_lip"):

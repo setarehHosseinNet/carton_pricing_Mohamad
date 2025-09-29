@@ -15,8 +15,10 @@ import ast
 import math
 import re
 import sys
+import json
 from collections import defaultdict, deque
-from typing import Any, Callable
+from typing import Any, Callable, Iterable, List
+from decimal import Decimal, ROUND_HALF_UP
 
 # ─────────────────────────────────────────────────────────────────────────────
 # دیباگ ساده روی stderr
@@ -512,8 +514,8 @@ def render_formula(expr: str, vars_dict: dict) -> str:
     return out
 
 # ─────────────────────────────────────────────────────────────────────────────
+# تولید گزینه‌ّهای چیدمان بر اساس عرض‌های ثابت
 
-# utils.py
 def compute_sheet_options(required_width_cm: float,
                           fixed_widths: list[float],
                           max_waste_cm: float = 11.0,
@@ -538,11 +540,10 @@ def compute_sheet_options(required_width_cm: float,
     # مرتب‌سازی: عرض نزولی، بعد دورریز صعودی
     opts.sort(key=lambda o: (-o['width'], o['waste']))
     return opts[:max_options]
-# carton_pricing/utils.py
-import json, re
-from typing import Any, Iterable, List
 
-# ارقام و جداکننده‌های فارسی/عربی → لاتین
+# ─────────────────────────────────────────────────────────────────────────────
+# نرمال‌سازی عرض‌های ثابت (fix widths) با پشتیبانی از ارقام فارسی/عربی
+
 _PERSIAN_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٬،٫", "01234567890123456789,,.")
 
 def _normalize_fixed_widths(
@@ -602,3 +603,97 @@ def _normalize_fixed_widths(
     if sort_result:
         out.sort()
     return out
+
+# ─────────────────────────────────────────────────────────────────────────────
+# گرد کردن به عدد صحیح (برای خروجی‌های integer)
+
+def q_int(v, default="0") -> Decimal:
+    """
+    گرد کردن به عدد صحیح (ROUND_HALF_UP) و برگرداندن Decimal('…')
+    """
+    try:
+        return Decimal(str(v)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    except Exception:
+        return Decimal(default)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# کمکی‌های عددی عمومی که در views/forms استفاده می‌شوند
+# (برای حل ImportError: as_num, as_num_or_none, q2)
+
+# مبدّل جامع ارقام فارسی/عربی و جداکننده‌ها به لاتین
+_PERSIAN_ARABIC_NUM_MAP = str.maketrans(
+    "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٬،٫",  # ارقام فارسی + عربی + جداکننده‌های رایج
+    "01234567890123456789,,."    # ارقام لاتین + کاما (هزارگان) + نقطه (اعشار)
+)
+
+def _normalize_num_str(x) -> str:
+    """
+    رشتهٔ عددی را نرمال می‌کند:
+    - ارقام فارسی/عربی → لاتین
+    - حذف فاصله و کاما (هزارگان)
+    - نگه داشتن نقطه اعشار
+    """
+    s = str(x).strip()
+    s = s.translate(_PERSIAN_ARABIC_NUM_MAP)
+    # حذف جداکننده‌های هزارگان و فاصله
+    s = s.replace(",", "").replace(" ", "")
+    return s
+
+def as_num(value, default: float = 0.0) -> float:
+    """
+    تبدیل ورودی به float با تحمل فرمت‌های فارسی/عربی.
+    اگر نتوانست، default برمی‌گرداند.
+    """
+    if value is None or value == "":
+        return float(default)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    try:
+        s = _normalize_num_str(value)
+        if s in {"", ".", "+", "-", "+.", "-."}:
+            return float(default)
+        return float(s)
+    except Exception:
+        try:
+            return float(Decimal(_normalize_num_str(value)))
+        except Exception:
+            return float(default)
+
+def as_num_or_none(value):
+    """
+    تلاش برای تبدیل به float؛ اگر نشد، None برمی‌گرداند.
+    (برای تمایز «نامعتبر» از «۰» مفید است)
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    s = _normalize_num_str(value)
+    if s in {"", ".", "+", "-", "+.", "-."}:
+        return None
+    try:
+        return float(s)
+    except Exception:
+        try:
+            return float(Decimal(s))
+        except Exception:
+            return None
+
+def q2(value, step: str = "0.01") -> Decimal:
+    """
+    مقدار ورودی را به Decimal تبدیل و با گام دلخواه (پیش‌فرض دو رقم اعشار) رُند می‌کند.
+    همیشه Decimal برمی‌گرداند (برای ذخیره در DecimalField مناسب است).
+    """
+    try:
+        d = Decimal(str(value if value is not None and value != "" else 0))
+    except Exception:
+        d = Decimal("0")
+    try:
+        quant = Decimal(step)
+    except Exception:
+        quant = Decimal("0.01")
+    return d.quantize(quant, rounding=ROUND_HALF_UP)

@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
+{% load extra_tags %}
+{% load humanize %}
 
 {% block content %}
 <h3 class="mb-3">فرم قیمت</h3>
@@ -61,10 +63,22 @@
   <div class="card mb-3">
     <div class="card-body">
       <div class="row gy-2">
-        <div class="col-md-3"><span class="text-muted">تاریخ آخرین سفارش:</span> <strong>{{ last_order_date_jalali|default:"—" }}</strong></div>
-        <div class="col-md-3"><span class="text-muted">فیِ آخرین سفارش:</span> <strong>{{ last_order_price|default:"—" }}</strong></div>
-        <div class="col-md-3"><span class="text-muted">نرخ آخرین سفارش:</span> <strong>{{ last_order_fee|default:"—" }}</strong></div>
-        <div class="col-md-3"><span class="text-muted">تاریخ ثبت سفارش جدید:</span> <strong>{{ today_jalali }}</strong></div>
+        <div class="col-md-3">
+          <span class="text-muted">تاریخ آخرین سفارش:</span>
+          <strong>{{ last_order_date_jalali|default:"—" }}</strong>
+        </div>
+        <div class="col-md-3">
+          <span class="text-muted">فیِ آخرین سفارش:</span>
+          <strong>{{ last_order_price|default:0|floatformat:0|intcomma }}</strong>
+        </div>
+        <div class="col-md-3">
+          <span class="text-muted">نرخ آخرین سفارش:</span>
+          <strong>{{ last_order_fee|default:0|floatformat:0|intcomma }}</strong>
+        </div>
+        <div class="col-md-3">
+          <span class="text-muted">تاریخ ثبت سفارش جدید:</span>
+          <strong>{{ today_jalali }}</strong>
+        </div>
       </div>
     </div>
   </div>
@@ -163,81 +177,83 @@
       {{ form.open_bottom_door }}
       {% for e in form.open_bottom_door.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
-{# ── هزینه‌های سربار (اختیاری) ── #}
-<div class="col-12">
-  <div class="card mt-2">
-    <div class="card-header">هزینه‌های سربار (اختیاری)</div>
-    <div class="card-body">
-      <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2">
-        {% for oh in overheads %}
-          <label class="form-check col d-flex align-items-center gap-2">
-            <input class="form-check-input" type="checkbox" name="oh_{{ oh.id }}" value="1">
-            <span class="ms-1">
-              {{ oh.name }}
-              <span class="text-muted small">— {{ oh.unit_cost|floatformat:2 }}</span>
-            </span>
-          </label>
-        {% empty %}
-          <div class="text-muted">هیچ هزینهٔ سرباری ثبت نشده است.</div>
-        {% endfor %}
+
+    {# ── هزینه‌های سربار (اختیاری) ── #}
+    <div class="col-12">
+      <div class="card mt-2">
+        <div class="card-header">هزینه‌های سربار (اختیاری)</div>
+        <div class="card-body">
+          <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2">
+            {% for oh in overheads %}
+              <label class="form-check col d-flex align-items-center gap-2">
+                <input class="form-check-input" type="checkbox" name="oh_{{ oh.id }}" value="1">
+                <span class="ms-1">
+                  {{ oh.name }}
+                  <span class="text-muted small">— {{ oh.unit_cost|default:0|floatformat:0|intcomma }}</span>
+                </span>
+              </label>
+            {% empty %}
+              <div class="text-muted">هیچ هزینهٔ سرباری ثبت نشده است.</div>
+            {% endfor %}
+          </div>
+        </div>
       </div>
     </div>
-  </div>
-</div>
 
-{# ───────── دکمه محاسبه جدول (قبل از نمایش جدول) ───────── #}
-<div class="text-end mt-3">
-  <button class="btn btn-outline-primary" type="submit" data-stage="s1" formnovalidate>
-    محاسبه جدول
-  </button>
-</div>
-{# ───────── جدول انتخاب عرض ورق ───────── #}
-{% if best_by_width %}
-  <div class="card mt-3">
-    <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
-    <div class="card-body">
-      <p class="text-muted mb-2">
-        <strong>K15 = {{ result_preview.K15 }}</strong> |
-        <strong>E20 = {{ result_preview.E20 }}</strong> |
-        <strong>K20 = {{ result_preview.K20 }}</strong><br>
-        معیار رنگ: <span class="text-success fw-bold">سبز</span> ⇐ 0 &lt; دورریز &lt; 11 ،
-        <span class="text-danger fw-bold">قرمز</span> ⇐ سایر حالات (شامل 0 و 11).
-      </p>
-
-      <div class="table-responsive">
-        <table class="table table-sm align-middle text-center">
-          <thead>
-            <tr>
-              <th>انتخاب</th>
-              <th>(cm) عرض ورق (M24)</th>
-              <th>F24 (≤ 30)</th>
-              <th>(cm) دورریز (I22)</th>
-              <th>(cm²) مصرف کارتن (E28)</th>
-            </tr>
-          </thead>
-          <tbody>
-          {% for r in best_by_width %}
-            <tr>
-              <td>
-                <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
-                       {% if request.POST.sheet_choice %}
-                         {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
-                       {% elif forloop.first %}checked{% endif %}>
-              </td>
-              <td>{{ r.sheet_width|floatformat:0 }}</td>
-              <td>{{ r.f24 }}</td>
-              <td class="{% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}text-success fw-bold{% elif r.I22 is not None %}text-danger{% else %}text-muted{% endif %}">
-                {% if r.I22 is not None %}{{ r.I22|floatformat:2 }}{% else %}—{% endif %}
-              </td>
-              <td>{% if r.E28 is not None %}{{ r.E28|floatformat:4 }}{% else %}—{% endif %}</td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
+    {# ───────── دکمه محاسبه جدول (قبل از نمایش جدول) ───────── #}
+    <div class="text-end mt-3">
+      <button class="btn btn-outline-primary" type="submit" data-stage="s1" formnovalidate>
+        محاسبه جدول
+      </button>
     </div>
-  </div>
-{% endif %}
+
+    {# ───────── جدول انتخاب عرض ورق ───────── #}
+    {% if best_by_width %}
+      <div class="card mt-3">
+        <div class="card-header">انتخاب عرض ورق از بین گزینه‌های مناسب</div>
+        <div class="card-body">
+          <p class="text-muted mb-2">
+            <strong>K15 = {{ result_preview.K15 }}</strong> |
+            <strong>E20 = {{ result_preview.E20 }}</strong> |
+            <strong>K20 = {{ result_preview.K20 }}</strong><br>
+            معیار رنگ: <span class="text-success fw-bold">سبز</span> ⇐ 0 &lt; دورریز &lt; 11 ،
+            <span class="text-danger fw-bold">قرمز</span> ⇐ سایر حالات (شامل 0 و 11).
+          </p>
+
+          <div class="table-responsive">
+            <table class="table table-sm align-middle text-center">
+              <thead>
+                <tr>
+                  <th>انتخاب</th>
+                  <th>(cm) عرض ورق (M24)</th>
+                  <th>F24 (≤ 30)</th>
+                  <th>(cm) دورریز (I22)</th>
+                  <th>(cm²) مصرف کارتن (E28)</th>
+                </tr>
+              </thead>
+              <tbody>
+              {% for r in best_by_width %}
+                <tr>
+                  <td>
+                    <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
+                           {% if request.POST.sheet_choice %}
+                             {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
+                           {% elif forloop.first %}checked{% endif %}>
+                  </td>
+                  <td>{{ r.sheet_width|floatformat:0 }}</td>
+                  <td>{{ r.f24 }}</td>
+                  <td class="{% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}text-success fw-bold{% elif r.I22 is not None %}text-danger{% else %}text-muted{% endif %}">
+                    {% if r.I22 is not None %}{{ r.I22|floatformat:2 }}{% else %}—{% endif %}
+                  </td>
+                  <td>{% if r.E28 is not None %}{{ r.E28|floatformat:4 }}{% else %}—{% endif %}</td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    {% endif %}
 
     {# ── گام فلوت ── #}
     <div class="col-md-3">
@@ -246,7 +262,8 @@
       {% for e in form.D31_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
   </div>
-    {# ───────── ترکیب کاغذ (با شناسه برای کنترل نمایش) ───────── #}
+
+  {# ───────── ترکیب کاغذ ───────── #}
   <div class="card mt-2">
     <div class="card-header">ترکیب کاغذ</div>
     <div class="card-body row g-3">
@@ -278,76 +295,58 @@
     </div>
   </div>
 
-{# دکمه محاسبه نهایی #}
+  {# دکمه محاسبه نهایی #}
   <div class="mt-3">
     <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
       <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
       محاسبه
     </button>
+  </div>
 
+  {# ───────── نتیجه ───────── #}
+  {% if ui_stage == 'final' %}
+    <div class="card shadow-sm">
+      <div class="card-header">نتیجه محاسبات</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-2"><strong>A6:</strong> {{ result.A6_sheet_code }}</div>
+          <div class="col-md-2"><strong>E20:</strong> {{ result.E20_industrial_len }} cm</div>
+          <div class="col-md-2"><strong>K20:</strong> {{ result.K20_industrial_wid }} cm</div>
+          <div class="col-md-3"><strong>F24 (تعداد/ورق):</strong> {{ result.F24_per_sheet_count }}</div>
+          <div class="col-md-3"><strong>عرض ورق انتخابی:</strong> {{ result.chosen_sheet_width }} cm</div>
+          <hr/>
+          <div class="col-md-3"><strong>E28 مصرف کارتن:</strong> {{ result.E28_carton_consumption }}</div>
+          <div class="col-md-3"><strong>E38 متراژ ورق (m²):</strong> {{ result.E38_sheet_area_m2 }}</div>
+          <div class="col-md-3"><strong>I38 تعداد ورق:</strong> {{ result.I38_sheet_count }}</div>
 
-
-
-{# ───────── نتیجه ───────── #}
-{% if ui_stage == 'final' %}
-  <div class="card shadow-sm">
-    <div class="card-header">نتیجه محاسبات</div>
-    <div class="card-body">
-      <div class="row g-3">
-        <div class="col-md-2"><strong>A6:</strong> {{ result.A6_sheet_code }}</div>
-        <div class="col-md-2"><strong>E20:</strong> {{ result.E20_industrial_len }} cm</div>
-        <div class="col-md-2"><strong>K20:</strong> {{ result.K20_industrial_wid }} cm</div>
-        <div class="col-md-3"><strong>F24 (تعداد/ورق):</strong> {{ result.F24_per_sheet_count }}</div>
-        <div class="col-md-3"><strong>عرض ورق انتخابی:</strong> {{ result.chosen_sheet_width }} cm</div>
-        <hr/>
-        <div class="col-md-3"><strong>E28 مصرف کارتن:</strong> {{ result.E28_carton_consumption }}</div>
-        <div class="col-md-3"><strong>E38 متراژ ورق (m²):</strong> {{ result.E38_sheet_area_m2 }}</div>
-        <div class="col-md-3"><strong>I38 تعداد ورق:</strong> {{ result.I38_sheet_count }}</div>
-        <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost }}</div>
-        <div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost }}</div>
-        <div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost }}</div>
-        <div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount }}</div>
-        <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax }}</div>
-        <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax }}</div>
-        <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax }}</div>
-        <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|floatformat:2 }}</div>
+          <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost|default:0|floatformat:0|intcomma }}</div>
+          <div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost|default:0|floatformat:0|intcomma }}</div>
+          <div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost|default:0|floatformat:0|intcomma }}</div>
+          <div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount|default:0|floatformat:0|intcomma }}</div>
+          <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax|default:0|floatformat:0|intcomma }}</div>
+          <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax|default:0|floatformat:0|intcomma }}</div>
+          <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax|default:0|floatformat:0|intcomma }}</div>
+          <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|floatformat:0|intcomma }}</div>
+        </div>
       </div>
     </div>
-  </div>
-      {# ذخیره رکورد #}
-  <div class="form-check mt-3">
-    {{ form.save_record }} {{ form.save_record.label_tag }}
-  </div>
- {# دکمه محاسبه نهایی #}
-  <div class="mt-3">
-    <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
-      <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-      محاسبه نهایی
-    </button>
-  </div>
+
+    {# ذخیره رکورد #}
+    <div class="form-check mt-3">
+      {{ form.save_record }} {{ form.save_record.label_tag }}
+    </div>
+
+    <div class="mt-3">
+      <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
+        <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+        محاسبه نهایی
+      </button>
+    </div>
+  {% endif %}
 </form>
-{% endif %}
-{% if layers_area_breakdown %}
-  <div class="table-responsive mt-3">
-    <table class="table table-sm text-center">
-      <thead><tr><th>لایه</th><th>کاغذ</th><th>عرض (cm)</th><th>E20 (cm)</th><th>مساحت (m²)</th></tr></thead>
-      <tbody>
-      {% for r in layers_area_breakdown %}
-        <tr>
-          <td>{{ r.field }}</td>
-          <td>{{ r.name }}</td>
-          <td>{{ r.width_cm }}</td>
-          <td>{{ r.e20_cm }}</td>
-          <td>{{ r.area_m2 }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-      <tfoot>
-        <tr class="fw-bold"><td colspan="4">جمع کل</td><td>{{ layers_area_total }}</td></tr>
-      </tfoot>
-    </table>
-  </div>
-{% endif %}
+
+{# اگر خواستی جدول ریز لایه‌ها را برگردانی، همین‌جا است (فعلاً کامنت) #}
+
 <script>
 (function () {
   "use strict";
@@ -378,40 +377,36 @@
     const el = document.getElementById(id);
     if(!el) return;
     el.classList.toggle('d-none', !show);
-    // کنترل‌های داخل ستون را هم غیرفعال/فعال کن
     el.querySelectorAll('select, input, textarea').forEach(ctrl => ctrl.disabled = !show);
   }
 
   function currentFluteText(){
     const sel = document.getElementById('id_D31_flute');
     if(!sel) return '';
-    // متن نمایش داده‌شده را مبنا قرار می‌دهیم (ممکن است value عددی باشد)
     const txt = (sel.options[sel.selectedIndex]?.text || '').toUpperCase();
-    // برای اطمینان فاصله‌ها را حذف می‌کنیم
     return txt.replace(/\s+/g,'').trim();
   }
 
   function updateFluteColumns(){
-    const t = currentFluteText();   // مثلا "FLOUTC" یا "C" یا "فلوتC"
-    // پیش‌فرض: همه روشن
+    const t = currentFluteText();
     let showGlue=true, showBE=true, showMid=true, showC=true, showBottom=true;
 
-    // اگر C انتخاب است: فقط Glue + C + Bottom
     if (/(^|[^A-Z])C([^A-Z]|$)/.test(t)) {
       showGlue = true; showC = true; showBottom = true;
       showBE = false;  showMid = false;
     }
-    // اگر D انتخاب است: فقط Glue + B/E + Bottom
     else if (/(^|[^A-Z])D([^A-Z]|$)/.test(t)) {
       showGlue = true; showBE = true; showBottom = true;
       showC = false;   showMid = false;
     }
-    // اگر E انتخاب است: فقط Glue + B/E + Bottom
     else if (/(^|[^A-Z])E([^A-Z]|$)/.test(t)) {
       showGlue = true; showBE = true; showBottom = true;
       showC = false;   showMid = false;
     }
-    // سایر حالات: همه روشن
+    else if (/(^|[^A-Z])B([^A-Z]|$)/.test(t)) {
+      showGlue = true; showBE = true; showBottom = true;
+      showC = false;   showMid = false;
+    }
 
     showWrap('wrap-glue',   showGlue);
     showWrap('wrap-be',     showBE);
@@ -434,16 +429,13 @@
     btnSubmit?.setAttribute('disabled','disabled');
   });
 
-  // رویدادها و اجرای اولیه
   window.addEventListener('load', function(){
     updateByA3();
     updateFluteColumns();
   });
 
-  // تغییر «نوع درب»
   document.getElementById('id_A3_door_type')?.addEventListener('change', updateByA3);
 
-  // تغییر «گام فلوت» (ساده + سازگاری با Select2)
   const d31 = document.getElementById('id_D31_flute');
   d31?.addEventListener('change', updateFluteColumns);
   d31?.addEventListener('input',  updateFluteColumns);
@@ -452,7 +444,6 @@
   }
 })();
 </script>
-
 
 <style>
   .form-check-inline .form-check-input{margin-inline:.25rem;}

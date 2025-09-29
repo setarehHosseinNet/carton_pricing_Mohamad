@@ -1,105 +1,93 @@
 # carton_pricing/services/area.py
 from __future__ import annotations
 
+from decimal import Decimal
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional, Dict, Iterable, Tuple, List
 
-from carton_pricing.models import Paper
-
-Q4 = Decimal("0.0001")  # برای رُند 4 رقم اعشار
-
-LAYER_FIELDS: Tuple[str, ...] = (
-    "pq_glue_machine",   # ماشین چسب
-    "pq_be_flute",       # B/E فلوت
-    "pq_middle_layer",   # لایه میانی
-    "pq_c_flute",        # C فلوت
-    "pq_bottom_layer",   # زیره
-)
-
-@dataclass(frozen=True)
+@dataclass
 class LayerArea:
-    field: str
-    paper_id: Optional[int]
     name: str
     width_cm: Decimal
-    e20_cm: Decimal
-    area_m2: Decimal  # رند شده به 4 رقم
+    length_cm: Decimal
+    area_m2: Decimal
 
 class CompositionAreaCalculator:
     """
-    محاسبه‌ی مساحت کل ترکیب کاغذ برای طول صنعتی E20 (بر حسب سانتی‌متر).
-    - لایه‌های انتخاب‌نشده = 0
-    - خروجی: جمع کل + جزئیات هر لایه
+    محاسبه‌ی مساحت هر لایه = (عرض کاغذ بر حسب cm × طول قطعه E20 بر حسب cm) / 10000
+    اگر لایه‌ای انتخاب نشده باشد، مساحت آن صفر در نظر گرفته می‌شود.
     """
+    def __init__(self, *, glue=None, be=None, mid=None, c=None, bottom=None, e20_cm=None):
+        self.glue = glue
+        self.be = be
+        self.mid = mid
+        self.c = c
+        self.bottom = bottom
+        self.e20_cm = Decimal(str(e20_cm or 0))
 
-    def __init__(self, e20_cm: object, layers: Dict[str, Optional[Paper]]):
-        self.e20_cm = self._to_decimal(e20_cm)
-        self.layers = {k: (v if isinstance(v, Paper) else None) for k, v in (layers or {}).items()}
-        # تضمین اینکه همه‌ی فیلدهای شناخته‌شده حاضر باشند
-        for f in LAYER_FIELDS:
-            self.layers.setdefault(f, None)
-        self._breakdown: List[LayerArea] = []
-        self._total_m2: Optional[Decimal] = None
+    # ---- helpers ----
+    @staticmethod
+    def _paper_from_val(val):
+        # ممکن است مقدار، خود شیء Paper باشد یا صرفاً id آن
+        from carton_pricing.models import Paper
+        if not val:
+            return None
+        if isinstance(val, Paper):
+            return val
+        try:
+            return Paper.objects.only("width_cm").get(pk=val)
+        except Exception:
+            return None
 
-    # ---------- API های سازنده ----------
+    @staticmethod
+    def _area(width_cm, length_cm) -> Decimal:
+        try:
+            w = Decimal(str(width_cm or 0))
+            l = Decimal(str(length_cm or 0))
+        except Exception:
+            return Decimal("0")
+        # m²
+        return (w * l / Decimal("10000")).quantize(Decimal("0.0001"))
+
+    def _compute_layer(self, name: str, paper) -> LayerArea:
+        if not paper:
+            return LayerArea(name=name, width_cm=Decimal("0"), length_cm=self.e20_cm, area_m2=Decimal("0"))
+        width = Decimal(str(paper.width_cm or 0))
+        area = self._area(width, self.e20_cm)
+        return LayerArea(name=name, width_cm=width, length_cm=self.e20_cm, area_m2=area)
+
+    def _compute(self):
+        layers = []
+        for name, val in [
+            ("ماشین چسب", self.glue),
+            ("B/E فلوت", self.be),
+            ("لایه میانی", self.mid),
+            ("C فلوت", self.c),
+            ("زیره", self.bottom),
+        ]:
+            layers.append(self._compute_layer(name, self._paper_from_val(val)))
+        total = sum((x.area_m2 for x in layers), Decimal("0")).quantize(Decimal("0.0001"))
+        return total, layers
+
+    # ---- public API ----
     @classmethod
-    def from_cleaned(cls, cleaned_data: dict, e20_cm: object) -> "CompositionAreaCalculator":
-        """مستقیماً از cleaned_data فرم مدل (که Paper instance برمی‌گرداند) بساز."""
+    def from_cleaned(cls, cd: dict, *, e20_cm=None) -> "CompositionAreaCalculator":
         return cls(
+            glue=cd.get("pq_glue_machine"),
+            be=cd.get("pq_be_flute"),
+            mid=cd.get("pq_middle_layer"),
+            c=cd.get("pq_c_flute"),
+            bottom=cd.get("pq_bottom_layer"),
             e20_cm=e20_cm,
-            layers={f: cleaned_data.get(f) for f in LAYER_FIELDS}
         )
-
-    # ---------- Public ----------
-    @property
-    def breakdown(self) -> List[LayerArea]:
-        if self._total_m2 is None:
-            self._compute()
-        return list(self._breakdown)
 
     @property
     def total_m2(self) -> Decimal:
-        if self._total_m2 is None:
-            self._compute()
-        return self._total_m2
+        if not hasattr(self, "_total"):
+            self._total, self._layers = self._compute()
+        return self._total
 
-    # ---------- Internal ----------
-    def _compute(self) -> None:
-        self._breakdown = []
-        total = Decimal("0")
-        L = self.e20_cm
-
-        for field in LAYER_FIELDS:
-            paper = self.layers.get(field)
-            if paper is None:
-                la = LayerArea(
-                    field=field,
-                    paper_id=None,
-                    name="—",
-                    width_cm=Decimal("0"),
-                    e20_cm=L,
-                    area_m2=Decimal("0").quantize(Q4, rounding=ROUND_HALF_UP),
-                )
-            else:
-                area = paper.area_for_length_m2(L)
-                la = LayerArea(
-                    field=field,
-                    paper_id=paper.pk,
-                    name=str(paper),
-                    width_cm=Decimal(str(paper.width_cm or 0)),
-                    e20_cm=L,
-                    area_m2=area.quantize(Q4, rounding=ROUND_HALF_UP),
-                )
-                total += la.area_m2
-
-            self._breakdown.append(la)
-
-        self._total_m2 = total.quantize(Q4, rounding=ROUND_HALF_UP)
-
-    @staticmethod
-    def _to_decimal(v: object) -> Decimal:
-        try:
-            return Decimal(str(v or 0))
-        except Exception:
-            return Decimal("0")
+    @property
+    def breakdown(self) -> list[LayerArea]:
+        if not hasattr(self, "_layers"):
+            self._total, self._layers = self._compute()
+        return self._layers

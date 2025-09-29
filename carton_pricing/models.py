@@ -207,7 +207,7 @@ class FluteStep(TimeStamped):
     key = models.CharField("گام فلوت", max_length=2, choices=STEP_CHOICES, unique=True)
 
     class Meta:
-        ordering = ("key",)
+        ordering = ("id",)
 
     def __str__(self) -> str:
         return self.key

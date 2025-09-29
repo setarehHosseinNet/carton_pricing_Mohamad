@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'carton_pricing',
+    'django.contrib.humanize',
 ]
 
 MIDDLEWARE = [

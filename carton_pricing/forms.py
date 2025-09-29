@@ -240,21 +240,6 @@ from .models import (
     PaperGroup,
     Customer,
 )
-# from .forms_base import NormalizeDigitsModelForm  # اگر جای دیگری دارید، ایمپورت مربوطه را درست کنید
-
-
-# نام فیلدهای چک‌باکس «موارد انتخابی» که ممکن است در مدل هم باشند
-# FLAG_FIELD_NAMES = [
-#     "flag_customer_dims",
-#     "flag_customer_sample",
-#     "flag_sample_dims",
-#     "flag_new_cliche",
-#     "flag_staple",
-#     "flag_handle_slot",
-#     "flag_punch",
-#     "flag_pallet_wrap",
-#     "flag_shipping_not_seller",
-# ]
 
 class PriceForm(NormalizeDigitsModelForm):
     # کنترل‌های عمومی فرم
