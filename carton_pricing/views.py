@@ -946,9 +946,21 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     ctx: Dict[str, Any] = {"settings": bs}
 
     copy_from = (request.GET.get("copy_from") or request.POST.get("copy_from") or "").strip()
+    PROFIT_KW = "سود فاکتور"
 
     def _overheads_qs():
         return OverheadItem.objects.filter(is_active=True).order_by("name")
+
+    # تیک‌های سربار انتخاب‌شده (برای حفظ وضعیت در UI)
+    def _selected_overhead_ids(req) -> set[int]:
+        out: set[int] = set()
+        for k in req.POST.keys():
+            if k.startswith("oh_"):
+                try:
+                    out.add(int(k.split("_", 1)[1]))
+                except Exception:
+                    pass
+        return out
 
     # ───────────── helpers ─────────────
     def _truthy(v: Any) -> bool:
@@ -1104,6 +1116,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "locked_phone": form.initial.get("contact_phone") or "",
             "copy_from": copy_from,
             "overheads": _overheads_qs(),
+            "overheads_checked": set(),    # برای نمایش اولیه
         })
         return render(request, "carton_pricing/price_form.html", ctx)
 
@@ -1117,6 +1130,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         "locked_phone": form.initial.get("contact_phone") or "",
         "copy_from": copy_from,
         "overheads": _overheads_qs(),
+        "overheads_checked": _selected_overhead_ids(request),
     })
     if not form.is_valid():
         _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
@@ -1278,29 +1292,26 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     obj.E41_sheet_working_cost = E41_val
 
     # ── E40 از ExtraCharge ها (به‌جز «سود فاکتور»)
-    PROFIT_KW = "سود فاکتور"
     all_charges = ExtraCharge.objects.filter(is_active=True).order_by("priority", "id")
     charges_for_overhead = [ch for ch in all_charges if PROFIT_KW not in (ch.title or "")]
 
-    # ثابت‌ها
+    # ثابت‌ها (عددی، نه درصدی)
     overhead_fixed_per_m2 = Decimal("0.00")
     for ch in charges_for_overhead:
         if not ch.Percentage:
-            add_per_m2 = (fee_per_m2 + Decimal(str(ch.amount_cash or 0))).quantize(Decimal("0.01"))
-            overhead_fixed_per_m2 += add_per_m2
+            amount = Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
+            overhead_fixed_per_m2 += amount
     E40_fixed_total = (overhead_fixed_per_m2 * E38_m2).quantize(Decimal("0.01"))
 
     # ── سود (فقط «سود فاکتور») از OverheadItem یا ExtraCharge
     def _profit_amount(base_amount: Decimal) -> Decimal:
         total = Decimal("0.00")
-        # 1) OverheadItem با نام شامل «سود فاکتور»
-        qs1 = OverheadItem.objects.filter(is_active=True, name__icontains=PROFIT_KW)
-        for it in qs1:
+        # 1) OverheadItem با نام شامل «سود فاکتور» (درصد)
+        for it in OverheadItem.objects.filter(is_active=True, name__icontains=PROFIT_KW):
             rate = Decimal(str(getattr(it, "unit_cost", 0) or 0))
             total += (base_amount * rate / Decimal("100"))
-        # 2) اگر چیزی نبود/یا علاوه بر آن، از ExtraCharge با عنوان «سود فاکتور»
-        qs2 = ExtraCharge.objects.filter(is_active=True, title__icontains=PROFIT_KW)
-        for ch in qs2:
+        # 2) ExtraCharge با عنوان «سود فاکتور» (درصدی یا عددی)
+        for ch in ExtraCharge.objects.filter(is_active=True, title__icontains=PROFIT_KW):
             if ch.Percentage:
                 rate = Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
                 total += (base_amount * rate / Decimal("100"))
@@ -1308,16 +1319,16 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                 total += Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
         return total.quantize(Decimal("0.01"))
 
-    # H46 موقت برای درصدی‌های سربار
+    # H46 موقت برای درصدی‌های سربار (غیر از سود فاکتور)
     M40_provisional = (E41_val + E40_fixed_total).quantize(Decimal("0.01"))
     M41_provisional = _profit_amount(M40_provisional)
     H46_provisional = (M40_provisional + M41_provisional).quantize(Decimal("0.01"))
 
-    # درصدی‌های سربار (به‌جز «سود فاکتور»)
+    # درصدی‌های سربار (به‌جز «سود فاکتور») روی H46 موقت
     overhead_percent_total = Decimal("0.00")
     for ch in charges_for_overhead:
         if ch.Percentage:
-            rate = Decimal(str(ch.amount_cash or 0))
+            rate = Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
             overhead_percent_total += (H46_provisional * rate / Decimal("100"))
     overhead_percent_total = overhead_percent_total.quantize(Decimal("0.01"))
 

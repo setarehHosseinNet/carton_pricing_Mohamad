@@ -183,19 +183,23 @@
       <div class="card mt-2">
         <div class="card-header">هزینه‌های سربار (اختیاری)</div>
         <div class="card-body">
-          <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2">
-            {% for oh in overheads %}
-              <label class="form-check col d-flex align-items-center gap-2">
-                <input class="form-check-input" type="checkbox" name="oh_{{ oh.id }}" value="1">
-                <span class="ms-1">
-                  {{ oh.name }}
-                  <span class="text-muted small">— {{ oh.unit_cost|default:0|floatformat:0|intcomma }}</span>
-                </span>
-              </label>
-            {% empty %}
-              <div class="text-muted">هیچ هزینهٔ سرباری ثبت نشده است.</div>
-            {% endfor %}
-          </div>
+         <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2">
+  {% for oh in overheads %}
+    <label class="form-check col d-flex align-items-center gap-2">
+      <input class="form-check-input"
+             type="checkbox"
+             name="oh_{{ oh.id }}"
+             value="1"
+             {% if oh.id in overheads_checked %}checked{% endif %}>
+      <span class="ms-1">
+        {{ oh.name }}
+        <span class="text-muted small">— {{ oh.unit_cost|default:0|intcomma0 }}</span>
+      </span>
+    </label>
+  {% empty %}
+    <div class="text-muted">هیچ هزینهٔ سرباری ثبت نشده است.</div>
+  {% endfor %}
+</div>
         </div>
       </div>
     </div>
@@ -319,14 +323,15 @@
           <div class="col-md-3"><strong>E38 متراژ ورق (m²):</strong> {{ result.E38_sheet_area_m2 }}</div>
           <div class="col-md-3"><strong>I38 تعداد ورق:</strong> {{ result.I38_sheet_count }}</div>
 
-          <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost|default:0|floatformat:0|intcomma }}</div>
-          <div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost|default:0|floatformat:0|intcomma }}</div>
-          <div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost|default:0|floatformat:0|intcomma }}</div>
-          <div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount|default:0|floatformat:0|intcomma }}</div>
-          <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax|default:0|floatformat:0|intcomma }}</div>
-          <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax|default:0|floatformat:0|intcomma }}</div>
-          <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax|default:0|floatformat:0|intcomma }}</div>
-          <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|floatformat:0|intcomma }}</div>
+         <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost|intcomma0 }}</div>
+<div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost|intcomma0 }}</div>
+<div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost|intcomma0 }}</div>
+<div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount|intcomma0 }}</div>
+<div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax|intcomma0 }}</div>
+<div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax|intcomma0 }}</div>
+<div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax|intcomma0 }}</div>
+<div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|intcomma0 }}</div>
+
         </div>
       </div>
     </div>
