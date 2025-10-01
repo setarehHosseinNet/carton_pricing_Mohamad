@@ -239,7 +239,7 @@ class GroupBulkPriceView(FormView):
     """
     اعمال یک/چند مقدار جدید (قیمت واحد و/یا هزینه حمل) روی تمام Paperهای یک گروه.
     """
-    template_name = "carton_pricing/groups/bulk_price.html"  # اگر مسیر دیگری داری، هماهنگش کن
+    template_name = "papers/group_bulk_price.html"  # اگر مسیر دیگری داری، هماهنگش کن
     form_class = GroupPriceUpdateForm
     success_url = reverse_lazy("carton_pricing:group_bulk_price")
 

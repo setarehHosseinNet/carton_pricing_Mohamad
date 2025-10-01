@@ -65,6 +65,10 @@ urlpatterns = [
     path("groups/",                 PaperGroupListView.as_view(),   name="group_list"),
     path("groups/add/",             PaperGroupCreateView.as_view(), name="group_add"),
     path("groups/<int:pk>/edit/",   PaperGroupUpdateView.as_view(), name="group_update"),
+
+
+
+
     path("groups/<int:pk>/delete/", PaperGroupDeleteView.as_view(), name="group_delete"),
     path("groups/bulk-price/",      GroupBulkPriceView.as_view(),   name="group_bulk_price"),
 
