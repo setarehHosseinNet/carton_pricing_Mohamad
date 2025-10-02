@@ -241,6 +241,12 @@ from .models import (
     Customer,
 )
 
+from django import forms
+from django.core.exceptions import ValidationError
+from typing import Optional
+from .models import PriceQuotation, Paper, Customer
+from django.db import models as dj_models
+
 class PriceForm(NormalizeDigitsModelForm):
     # کنترل‌های عمومی فرم
     save_record = forms.BooleanField(required=False, initial=False, label="ذخیرهٔ برگه قیمت بعد از محاسبه؟")
@@ -251,6 +257,14 @@ class PriceForm(NormalizeDigitsModelForm):
         required=False, min_value=0, max_digits=6, decimal_places=2,
         label="درب باز پایین (cm)",
         widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "id": "id_open_bottom_door"}),
+    )
+
+    # ───── تغییر مهم: نوع کارتن به صورت Select با choices مدل ─────
+    carton_type = forms.ChoiceField(
+        label="نوع کارتن",
+        required=False,  # اگر می‌خواهید اجباری باشد، False را بردارید و در مدل هم default بگذارید
+        choices=PriceQuotation.CARTON_TYPE_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
     )
 
     # چک‌باکس‌های «موارد انتخابی»
@@ -288,7 +302,7 @@ class PriceForm(NormalizeDigitsModelForm):
             "contact_phone": forms.HiddenInput(),
             "prepared_by": forms.TextInput(attrs={"class": "form-control"}),
             "product_code": forms.TextInput(attrs={"class": "form-control", "dir": "ltr"}),
-            "carton_type": forms.TextInput(attrs={"class": "form-control"}),
+            # "carton_type":  ← قبلاً TextInput بود؛ حذف شد تا همان ChoiceField/Select استفاده شود
             "carton_name": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "I8_qty": forms.NumberInput(attrs={"class": "form-control", "min": 1}),
@@ -322,7 +336,7 @@ class PriceForm(NormalizeDigitsModelForm):
         from django.db.models import F
         qs = Paper.objects.all()
 
-        # 🧠 حداقل عرض از انتخاب «عرض ورق» (sheet_choice/M24) اگر وجود دارد
+        # حداقل عرض از انتخاب «عرض ورق» (sheet_choice/M24) اگر وجود دارد
         min_width_cm = None
         try:
             from decimal import Decimal as _D
@@ -348,23 +362,18 @@ class PriceForm(NormalizeDigitsModelForm):
         if min_width_cm is not None:
             qs = qs.filter(width_cm__gte=min_width_cm)
 
-        # ✅ مرتب‌سازی صعودی بر اساس width_cm (NULL ها آخر) و سپس name_paper
         qs = qs.order_by(F("width_cm").asc(nulls_last=True), "name_paper")
 
-        # برچسب خوانا: "<عرض> cm — <نام>"
         def _paper_label(p: Paper) -> str:
             w = f"{p.width_cm:.0f}" if p.width_cm is not None else "—"
             return f"{w} cm — {p.name_paper}"
 
-        # اعمال کوئری‌ست و برچسب روی پنج فیلد ترکیب کاغذ
         for fld in ("pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer"):
             if fld in self.fields:
                 self.fields[fld].queryset = qs
-                # ModelChoiceField است؛ می‌توان label_from_instance را ست کرد
                 if hasattr(self.fields[fld], "label_from_instance"):
                     self.fields[fld].label_from_instance = _paper_label  # type: ignore[attr-defined]
 
-        # اینها اختیاری
         for fld in ("E17_lip", "open_bottom_door", "E46_round_adjust"):
             if fld in self.fields:
                 self.fields[fld].required = False
@@ -410,7 +419,6 @@ class PriceForm(NormalizeDigitsModelForm):
     def clean(self):
         cleaned = super().clean()
         cleaned["has_print_notes"] = "yes" if cleaned.get("has_print_notes_bool") else "no"
-
         e17_up = cleaned.get("E17_lip") or 0
         e17_dn = cleaned.get("open_bottom_door") or 0
         cleaned["E17_total"] = (e17_up or 0) + (e17_dn or 0)

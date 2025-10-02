@@ -254,7 +254,24 @@ class PriceQuotation(TimeStamped):
     tech_shipping_on_customer = models.BooleanField("هزینه حمل با مشتری", default=False)
 
     product_code = models.CharField("کد محصول", max_length=64, blank=True)
-    carton_type = models.CharField("نوع کارتن", max_length=100, blank=True)
+    CARTON_NORMAL = "معمولی"
+    CARTON_DIECUT = "دایکات"
+    CARTON_TRAY = "کفی"
+
+    CARTON_TYPE_CHOICES = [
+        (CARTON_NORMAL, "معمولی"),
+        (CARTON_DIECUT, "دایکات"),
+        (CARTON_TRAY, "کفی"),
+    ]
+
+    carton_type = models.CharField(
+        "نوع کارتن",
+        max_length=10,
+        choices=CARTON_TYPE_CHOICES,
+        blank=True,  # اگر می‌خوای انتخاب اجباری باشد، این خط را حذف کن و یک default بگذار:
+
+        # default=CARTON_NORMAL,
+    )
     carton_name = models.CharField("نام کارتن", max_length=150, blank=True)
     description = models.TextField("توضیحات", blank=True)
 
@@ -446,8 +463,7 @@ class ExtraCharge(models.Model):
             return Decimal(str(raw or 0))
 
 
-from django.core.validators import MinValueValidator
-from django.db import models
+
 
 class OverheadItem(models.Model):
     name = models.CharField(

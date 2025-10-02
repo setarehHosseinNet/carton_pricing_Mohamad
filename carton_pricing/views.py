@@ -935,6 +935,38 @@ from .services.area import CompositionAreaCalculator
 from .utils import q2, as_num, as_num_or_none
 ...
 
+
+from decimal import Decimal
+import math
+from typing import Any, Dict, Optional
+
+from django.contrib import messages
+from django.db import transaction
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
+from django.utils import timezone
+
+from .forms import PriceForm, FLAG_FIELD_NAMES
+from .models import (
+    PriceQuotation, Paper, OverheadItem, ExtraCharge,
+)
+from .services import (
+    Env, SettingsLoader,
+    FormulaEngine, CalcFormula,
+    K15Calculator,
+    TableBuilder, TableRow, RowCalcs,
+    E17Calculator,
+    CompositionAreaCalculator,
+)
+from .services.area import CompositionAreaCalculator
+from .utils import as_num, as_num_or_none, q2
+
+try:
+    import jdatetime
+except Exception:
+    jdatetime = None
+
+
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
     مرحله‌ای:
@@ -944,15 +976,15 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     # ───────────── 0) Settings & Context ─────────────
     bs = SettingsLoader.load_latest()
     ctx: Dict[str, Any] = {"settings": bs}
-
     copy_from = (request.GET.get("copy_from") or request.POST.get("copy_from") or "").strip()
     PROFIT_KW = "سود فاکتور"
 
+    # ───────────── helpers ─────────────
     def _overheads_qs():
         return OverheadItem.objects.filter(is_active=True).order_by("name")
 
-    # تیک‌های سربار انتخاب‌شده (برای حفظ وضعیت در UI)
-    def _selected_overhead_ids(req) -> set[int]:
+    def _selected_overhead_ids(req: HttpRequest) -> set[int]:
+        """نام‌های چک‌باکس‌ها به‌صورت oh_<id> هستند؛ این تابع id های تیک خورده را برمی‌گرداند."""
         out: set[int] = set()
         for k in req.POST.keys():
             if k.startswith("oh_"):
@@ -962,7 +994,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                     pass
         return out
 
-    # ───────────── helpers ─────────────
     def _truthy(v: Any) -> bool:
         return str(v).strip().lower() in {"1", "true", "t", "y", "yes", "on"}
 
@@ -1116,7 +1147,7 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "locked_phone": form.initial.get("contact_phone") or "",
             "copy_from": copy_from,
             "overheads": _overheads_qs(),
-            "overheads_checked": set(),    # برای نمایش اولیه
+            "overheads_checked": set(),    # نمایش اولیه
         })
         return render(request, "carton_pricing/price_form.html", ctx)
 
@@ -1180,6 +1211,21 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
 
     # ───────────── 8) جدول مرحله ۱ ─────────────
     rows: list[TableRow] = TableBuilder.build_rows(k15=float(var["K15"]), widths=fixed_widths, env_base=var, eng=eng)
+
+    # انتخاب پیش‌فرض کمترین دورریز سبز
+    def _pick_best_green(rows_list: list[TableRow]) -> Optional[TableRow]:
+        greens = [r for r in rows_list if (r.I22 is not None and 0 < float(r.I22) < 11)]
+        if greens:
+            return min(greens, key=lambda r: float(r.I22))
+        nonnull = [r for r in rows_list if r.I22 is not None]
+        if nonnull:
+            return min(nonnull, key=lambda r: float(r.I22))
+        return rows_list[0] if rows_list else None
+
+    best_default = _pick_best_green(rows)
+    ctx["default_sheet_choice"] = float(best_default.sheet_width) if best_default else None
+    ctx["default_sheet_choice_str"] = f"{float(best_default.sheet_width):.2f}" if best_default else ""
+
     ctx["best_by_width"] = [r.__dict__ for r in rows]
     if k20_preview <= 0 and rows:
         k20_preview = as_num(var.get("K15"), 0.0) * float(rows[0].f24)
@@ -1205,8 +1251,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     w_try = as_num_or_none(picked_raw)
     if w_try is not None:
         chosen = next((r for r in rows if abs(r.sheet_width - w_try) < 1e-6), None)
-    if chosen is None and rows:
-        chosen = rows[0]
+    if chosen is None:
+        chosen = best_default
     if not chosen or int(chosen.f24 or 0) <= 0:
         messages.error(request, "امکان محاسبۀ نهایی نیست: F24 معتبر انتخاب نشده.")
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
@@ -1291,26 +1337,34 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     var["E41"] = float(E41_val)
     obj.E41_sheet_working_cost = E41_val
 
-    # ── E40 از ExtraCharge ها (به‌جز «سود فاکتور»)
-    all_charges = ExtraCharge.objects.filter(is_active=True).order_by("priority", "id")
-    charges_for_overhead = [ch for ch in all_charges if PROFIT_KW not in (ch.title or "")]
+    # ── E40: فقط از OverheadItem های تیک‌خورده
+    selected_ids = ctx.get("overheads_checked") or set()
+    oh_total_per_m2 = OverheadItem.objects.filter(
+        is_active=True, id__in=list(selected_ids)
+    ).aggregate(sum_cost=Decimal("0.00"))["sum_cost"] or Decimal("0.00")
+    # اگر DB backend sum نداشت:
+    if not oh_total_per_m2:
+        oh_total_per_m2 = Decimal("0.00")
+        for it in OverheadItem.objects.filter(is_active=True, id__in=list(selected_ids)):
+            oh_total_per_m2 += Decimal(str(it.unit_cost or 0))
 
-    # ثابت‌ها (عددی، نه درصدی)
-    overhead_fixed_per_m2 = Decimal("0.00")
-    for ch in charges_for_overhead:
-        if not ch.Percentage:
-            amount = Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
-            overhead_fixed_per_m2 += amount
-    E40_fixed_total = (overhead_fixed_per_m2 * E38_m2).quantize(Decimal("0.01"))
+    E40_val = (oh_total_per_m2 * E38_m2).quantize(Decimal("0.01"))
+    var["E40"] = float(E40_val)
+    obj.E40_overhead_cost = E40_val
 
-    # ── سود (فقط «سود فاکتور») از OverheadItem یا ExtraCharge
+    # ── پایه برای سود
+    M40_final = (E41_val + E40_val).quantize(Decimal("0.01"))
+    var["M40"] = float(M40_final)
+    obj.M40_total_cost = M40_final
+
+    # ── M41 (سود) با جست‌وجوی «سود فاکتور»
     def _profit_amount(base_amount: Decimal) -> Decimal:
         total = Decimal("0.00")
-        # 1) OverheadItem با نام شامل «سود فاکتور» (درصد)
+        # OverheadItem: درصد
         for it in OverheadItem.objects.filter(is_active=True, name__icontains=PROFIT_KW):
             rate = Decimal(str(getattr(it, "unit_cost", 0) or 0))
             total += (base_amount * rate / Decimal("100"))
-        # 2) ExtraCharge با عنوان «سود فاکتور» (درصدی یا عددی)
+        # ExtraCharge: درصد یا عدد ثابت
         for ch in ExtraCharge.objects.filter(is_active=True, title__icontains=PROFIT_KW):
             if ch.Percentage:
                 rate = Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
@@ -1319,33 +1373,11 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
                 total += Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
         return total.quantize(Decimal("0.01"))
 
-    # H46 موقت برای درصدی‌های سربار (غیر از سود فاکتور)
-    M40_provisional = (E41_val + E40_fixed_total).quantize(Decimal("0.01"))
-    M41_provisional = _profit_amount(M40_provisional)
-    H46_provisional = (M40_provisional + M41_provisional).quantize(Decimal("0.01"))
-
-    # درصدی‌های سربار (به‌جز «سود فاکتور») روی H46 موقت
-    overhead_percent_total = Decimal("0.00")
-    for ch in charges_for_overhead:
-        if ch.Percentage:
-            rate = Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
-            overhead_percent_total += (H46_provisional * rate / Decimal("100"))
-    overhead_percent_total = overhead_percent_total.quantize(Decimal("0.01"))
-
-    # E40 نهایی
-    E40_val = (E40_fixed_total + overhead_percent_total).quantize(Decimal("0.01"))
-    var["E40"] = float(E40_val)
-    obj.E40_overhead_cost = E40_val
-
-    # ── M40، M41، H46 نهایی
-    M40_final = (E41_val + E40_val).quantize(Decimal("0.01"))
-    var["M40"] = float(M40_final)
-    obj.M40_total_cost = M40_final
-
     M41_val = _profit_amount(M40_final)
     var["M41"] = float(M41_val)
     obj.M41_profit_amount = M41_val
 
+    # H46 = M40 + M41
     H46_val = (M40_final + M41_val).quantize(Decimal("0.01"))
     var["H46"] = float(H46_val)
     obj.H46_price_before_tax = H46_val

@@ -238,12 +238,17 @@
               <tbody>
               {% for r in best_by_width %}
                 <tr>
-                  <td>
-                    <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
-                           {% if request.POST.sheet_choice %}
-                             {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
-                           {% elif forloop.first %}checked{% endif %}>
-                  </td>
+                 <td>
+  <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
+         {% if request.POST.sheet_choice %}
+           {# اگر کاربر انتخاب کرده همان را نگه داریم #}
+           {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
+         {% else %}
+           {# پیش‌فرض: عرض بهترین ردیف سبز که از ویو آمد #}
+           {% if default_sheet_choice_str and (r.sheet_width|floatformat:2 == default_sheet_choice_str) %}checked{% endif %}
+         {% endif %}>
+</td>
+
                   <td>{{ r.sheet_width|floatformat:0 }}</td>
                   <td>{{ r.f24 }}</td>
                   <td class="{% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}text-success fw-bold{% elif r.I22 is not None %}text-danger{% else %}text-muted{% endif %}">
