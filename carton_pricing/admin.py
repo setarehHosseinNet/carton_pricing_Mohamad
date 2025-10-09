@@ -142,8 +142,8 @@ class FluteStepAdmin(admin.ModelAdmin):
 
 @admin.register(CalcFormula)
 class CalcFormulaAdmin(admin.ModelAdmin):
-    list_display = _safe_flat(CalcFormula, "key", "description", "updated_at")
-    search_fields = ("key", "description", "expression")
+    list_display = ("key", "updated_at")
+    search_fields = ("key", "expression", "description")
     ordering = ("key",)
     list_per_page = 100
 

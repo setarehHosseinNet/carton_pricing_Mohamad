@@ -222,6 +222,8 @@ class CalcFormula(TimeStamped):
 
     class Meta:
         ordering = ("key",)
+        verbose_name = "فرمول محاسباتی"
+        verbose_name_plural = "فرمول‌های محاسباتی"
 
     def __str__(self) -> str:
         return self.key

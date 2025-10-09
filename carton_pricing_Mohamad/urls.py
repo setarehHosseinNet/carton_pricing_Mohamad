@@ -16,10 +16,14 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from django.urls import path, include
+from django.urls import path, include,re_path
 from django.views.generic import RedirectView
+from django.contrib.staticfiles.storage import staticfiles_storage
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include(('carton_pricing.urls', 'carton_pricing'), namespace='carton_pricing')),
     path("", RedirectView.as_view(pattern_name="base_settings", permanent=False)),
+
+    re_path(r"^favicon\.ico$", RedirectView.as_view(
+        url=staticfiles_storage.url("carton_pricing/favicon.ico"), permanent=True)),
 ]

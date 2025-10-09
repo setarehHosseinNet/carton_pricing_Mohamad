@@ -36,6 +36,7 @@
 
 <form method="post" id="priceForm" class="card card-body shadow-sm mb-4" dir="rtl" novalidate>
   {% csrf_token %}
+  {# مقدار پیش‌فرض مرحله؛ دکمه‌ها هم name="stage" خواهند داشت #}
   <input type="hidden" name="stage" id="stageField" value="{{ ui_stage|default:'s1' }}"/>
 
   {# ───────── سربرگ: مشتری / تماس / تنظیم‌کننده ───────── #}
@@ -183,30 +184,30 @@
       <div class="card mt-2">
         <div class="card-header">هزینه‌های سربار (اختیاری)</div>
         <div class="card-body">
-         <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2">
-  {% for oh in overheads %}
-    <label class="form-check col d-flex align-items-center gap-2">
-      <input class="form-check-input"
-             type="checkbox"
-             name="oh_{{ oh.id }}"
-             value="1"
-             {% if oh.id in overheads_checked %}checked{% endif %}>
-      <span class="ms-1">
-        {{ oh.name }}
-        <span class="text-muted small">— {{ oh.unit_cost|default:0|intcomma0 }}</span>
-      </span>
-    </label>
-  {% empty %}
-    <div class="text-muted">هیچ هزینهٔ سرباری ثبت نشده است.</div>
-  {% endfor %}
-</div>
+          <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2">
+            {% for oh in overheads %}
+              <label class="form-check col d-flex align-items-center gap-2">
+                <input class="form-check-input"
+                       type="checkbox"
+                       name="oh_{{ oh.id }}"
+                       value="1"
+                       {% if oh.id in overheads_checked %}checked{% endif %}>
+                <span class="ms-1">
+                  {{ oh.name }}
+                  <span class="text-muted small">— {{ oh.unit_cost|default:0|intcomma0 }}</span>
+                </span>
+              </label>
+            {% empty %}
+              <div class="text-muted">هیچ هزینهٔ سرباری ثبت نشده است.</div>
+            {% endfor %}
+          </div>
         </div>
       </div>
     </div>
 
-    {# ───────── دکمه محاسبه جدول (قبل از نمایش جدول) ───────── #}
+    {# ───────── دکمه محاسبه جدول (مرحله s1) ───────── #}
     <div class="text-end mt-3">
-      <button class="btn btn-outline-primary" type="submit" data-stage="s1" formnovalidate>
+      <button class="btn btn-outline-primary" type="submit" name="stage" value="s1" formnovalidate>
         محاسبه جدول
       </button>
     </div>
@@ -238,17 +239,14 @@
               <tbody>
               {% for r in best_by_width %}
                 <tr>
-                 <td>
-  <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
-         {% if request.POST.sheet_choice %}
-           {# اگر کاربر انتخاب کرده همان را نگه داریم #}
-           {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
-         {% else %}
-           {# پیش‌فرض: عرض بهترین ردیف سبز که از ویو آمد #}
-          {% if default_sheet_choice_str|default_if_none:'' and r.sheet_width|floatformat:2 == default_sheet_choice_str|floatformat:2 %}checked{% endif %}
-
-         {% endif %}>
-</td>
+                  <td>
+                    <input type="radio" name="sheet_choice" value="{{ r.sheet_width }}"
+                      {% if request.POST.sheet_choice %}
+                        {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
+                      {% else %}
+                        {% if default_sheet_choice_str and r.sheet_width|floatformat:2 == default_sheet_choice_str %}checked{% endif %}
+                      {% endif %}>
+                  </td>
 
                   <td>{{ r.sheet_width|floatformat:0 }}</td>
                   <td>{{ r.f24 }}</td>
@@ -305,9 +303,9 @@
     </div>
   </div>
 
-  {# دکمه محاسبه نهایی #}
+  {# دکمه محاسبه نهایی (مرحله final) #}
   <div class="mt-3">
-    <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
+    <button id="btnSubmit" class="btn btn-primary" type="submit" name="stage" value="final">
       <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
       محاسبه
     </button>
@@ -329,40 +327,36 @@
           <div class="col-md-3"><strong>E38 متراژ ورق (m²):</strong> {{ result.E38_sheet_area_m2 }}</div>
           <div class="col-md-3"><strong>I38 تعداد ورق:</strong> {{ result.I38_sheet_count }}</div>
 
-         <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost|intcomma0 }}</div>
-<div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost|intcomma0 }}</div>
-<div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost|intcomma0 }}</div>
-<div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount|intcomma0 }}</div>
-<div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax|intcomma0 }}</div>
-<div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax|intcomma0 }}</div>
-<div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax|intcomma0 }}</div>
-<div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|intcomma0 }}</div>
-
+          <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost|intcomma0 }}</div>
+          <div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost|intcomma0 }}</div>
+          <div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost|intcomma0 }}</div>
+          <div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount|intcomma0 }}</div>
+          <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax|intcomma0 }}</div>
+          <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax|intcomma0 }}</div>
+          <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax|intcomma0 }}</div>
+          <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|intcomma0 }}</div>
         </div>
       </div>
     </div>
 
-    {# ذخیره رکورد #}
     <div class="form-check mt-3">
       {{ form.save_record }} {{ form.save_record.label_tag }}
     </div>
 
     <div class="mt-3">
-      <button id="btnSubmit" class="btn btn-primary" type="submit" data-stage="final">
-        <span id="btnSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+      <button class="btn btn-primary" type="submit" name="stage" value="final">
+        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
         محاسبه نهایی
       </button>
     </div>
   {% endif %}
 </form>
 
-{# اگر خواستی جدول ریز لایه‌ها را برگردانی، همین‌جا است (فعلاً کامنت) #}
-
 <script>
 (function () {
   "use strict";
 
-  // ===== درب باز (مثل قبل) =====
+  // ===== درب باز =====
   function toggleOpenDoorExtras(show) {
     document.querySelectorAll('.open-door-extra').forEach(el=>{
       el.classList.toggle('d-none', !show);
@@ -390,14 +384,12 @@
     el.classList.toggle('d-none', !show);
     el.querySelectorAll('select, input, textarea').forEach(ctrl => ctrl.disabled = !show);
   }
-
   function currentFluteText(){
     const sel = document.getElementById('id_D31_flute');
     if(!sel) return '';
     const txt = (sel.options[sel.selectedIndex]?.text || '').toUpperCase();
     return txt.replace(/\s+/g,'').trim();
   }
-
   function updateFluteColumns(){
     const t = currentFluteText();
     let showGlue=true, showBE=true, showMid=true, showC=true, showBottom=true;
@@ -426,25 +418,16 @@
     showWrap('wrap-bottom', showBottom);
   }
 
-  // ذخیره مرحله
-  const stageField = document.getElementById('stageField');
-  document.querySelectorAll('button[type="submit"][data-stage]').forEach(btn=>{
-    btn.addEventListener('click', ()=> { if(stageField) stageField.value = btn.dataset.stage; });
-  });
-
   // UX ارسال
-  const btnSubmit = document.getElementById('btnSubmit');
   const btnSpinner = document.getElementById('btnSpinner');
   document.getElementById('priceForm')?.addEventListener('submit', ()=>{
     btnSpinner?.classList.remove('d-none');
-    btnSubmit?.setAttribute('disabled','disabled');
   });
 
   window.addEventListener('load', function(){
     updateByA3();
     updateFluteColumns();
   });
-
   document.getElementById('id_A3_door_type')?.addEventListener('change', updateByA3);
 
   const d31 = document.getElementById('id_D31_flute');

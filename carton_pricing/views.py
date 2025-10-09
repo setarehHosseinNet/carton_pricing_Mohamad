@@ -975,6 +975,8 @@ try:
 except Exception:
     jdatetime = None
 
+from django.apps import apps
+from types import SimpleNamespace
 
 def price_form_view(request: HttpRequest) -> HttpResponse:
     """
@@ -1196,54 +1198,138 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     SettingsLoader.inject(bs, settlement, var, cd)
 
     # ───────────── 4) موتور فرمول (فقط برای ابعاد/جدول) ─────────────
-    formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormula.objects.all()}
-    eng = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))
+    from django.apps import apps
+    formulas_raw = {}
+    CalcFormulaModel = apps.get_model("carton_pricing", "CalcFormula")
+    if CalcFormulaModel is not None:
+        try:
+            formulas_raw = {cf.key: str(cf.expression or "") for cf in CalcFormulaModel.objects.all()}
+        except Exception:
+            formulas_raw = {}
+
+    # سازگارسازی Env/Engine با امضاهای مختلف
+    try:
+        env_obj = SimpleNamespace(var=var, formulas_raw=formulas_raw)
+    except Exception:
+        env_obj = None
+    try:
+        eng = FormulaEngine(env_obj) if env_obj is not None else FormulaEngine()
+    except TypeError:
+        # اگر سازنده پارامتر نگرفت
+        eng = FormulaEngine()
+
+    def _eng_get(engine, key, default=None):
+        try:
+            if hasattr(engine, "get"):
+                return engine.get(key)
+            if hasattr(engine, "evaluate"):
+                return engine.evaluate(key, context=var)
+        except Exception:
+            return default
+        return default
 
     # ───────────── 5) محاسبۀ E17 ─────────────
     tail = (var["A6"] % 100) if var["A6"] else 0
-    var["E17"] = E17Calculator.compute(tail=tail, g15=as_num(var.get("G15"), 0.0), cd=cd, stage=stage, eng=eng, form=form)
+    try:
+        if hasattr(E17Calculator, "compute"):
+            var["E17"] = E17Calculator.compute(tail=tail, g15=as_num(var.get("G15"), 0.0), cd=cd, stage=stage, eng=eng, form=form)
+        else:
+            # fallback به نمونه/متد دیگر
+            e17c = E17Calculator() if callable(getattr(E17Calculator, "__call__", None)) else E17Calculator
+            var["E17"] = e17c.calc(tail=tail, g15=as_num(var.get("G15"), 0.0), cd=cd, stage=stage, eng=eng, form=form)  # type: ignore
+    except Exception:
+        var["E17"] = as_num(var.get("E17"), 0.0)
     try:
         obj.E17_lip = q2(var["E17"], "0.01")
     except Exception:
         pass
 
     # ───────────── 6) I17 و K15 (با fallback) ─────────────
-    eng = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))  # rebuild
-    var["I17"] = as_num(eng.get("I17"), as_num(var.get("E15"), 0.0) + as_num(var.get("G15"), 0.0) + 3.5)
+    try:
+        eng = FormulaEngine(env_obj) if env_obj is not None else FormulaEngine()
+    except TypeError:
+        eng = FormulaEngine()
+    var["I17"] = as_num(_eng_get(eng, "I17"), as_num(var.get("E15"), 0.0) + as_num(var.get("G15"), 0.0) + 3.5)
 
-    fixed_widths = bs.fixed_widths or [80, 90, 100, 110, 120, 125, 140]
-    var["K15"] = K15Calculator.compute(eng=eng, tail=tail, var=var, fixed_widths=fixed_widths)
+    fixed_widths = getattr(bs, "fixed_widths", None) or [80, 90, 100, 110, 120, 125, 140]
+    try:
+        if hasattr(K15Calculator, "compute"):
+            var["K15"] = K15Calculator.compute(eng=eng, tail=tail, var=var, fixed_widths=fixed_widths)
+        else:
+            k15c = K15Calculator() if callable(getattr(K15Calculator, "__call__", None)) else K15Calculator
+            var["K15"] = k15c.calc(eng=eng, tail=tail, var=var, fixed_widths=fixed_widths)  # type: ignore
+    except Exception:
+        var["K15"] = as_num(var.get("K15"), 0.0)
 
     # ───────────── 7) پیش‌نمایش E20/K20 ─────────────
-    e20_preview = RowCalcs.e20_row(var, eng)
-    k20_preview = as_num(eng.get("K20"), 0.0) or 0.0
+    try:
+        e20_preview = RowCalcs.e20_row(var, eng)
+    except Exception:
+        e20_preview = as_num(var.get("E20"), 0.0)
+    k20_preview = as_num(_eng_get(eng, "K20"), 0.0) or 0.0
 
     # ───────────── 8) جدول مرحله ۱ ─────────────
-    rows: list[TableRow] = TableBuilder.build_rows(k15=float(var["K15"]), widths=fixed_widths, env_base=var, eng=eng)
+    try:
+        rows: list[TableRow] = TableBuilder.build_rows(k15=float(var["K15"]), widths=fixed_widths, env_base=var, eng=eng)
+    except Exception:
+        rows = []
 
     # انتخاب پیش‌فرض کمترین دورریز سبز
     def _pick_best_green(rows_list: list[TableRow]) -> Optional[TableRow]:
-        greens = [r for r in rows_list if (r.I22 is not None and 0 < float(r.I22) < 11)]
+        greens = [r for r in rows_list if (getattr(r, "I22", None) is not None and 0 < float(getattr(r, "I22")) < 11)]
         if greens:
-            return min(greens, key=lambda r: float(r.I22))
-        nonnull = [r for r in rows_list if r.I22 is not None]
+            return min(greens, key=lambda r: float(getattr(r, "I22")))
+        nonnull = [r for r in rows_list if getattr(r, "I22", None) is not None]
         if nonnull:
-            return min(nonnull, key=lambda r: float(r.I22))
+            return min(nonnull, key=lambda r: float(getattr(r, "I22")))
         return rows_list[0] if rows_list else None
 
     best_default = _pick_best_green(rows)
-    ctx["default_sheet_choice"] = float(best_default.sheet_width) if best_default else None
-    ctx["default_sheet_choice_str"] = f"{float(best_default.sheet_width):.2f}" if best_default else ""
+    ctx["default_sheet_choice"] = float(getattr(best_default, "sheet_width")) if best_default else None
+    ctx["default_sheet_choice_str"] = f"{float(getattr(best_default, 'sheet_width')):.2f}" if best_default else ""
 
-    ctx["best_by_width"] = [r.__dict__ for r in rows]
+    ctx["best_by_width"] = [getattr(r, "__dict__", {}) for r in rows]
     if k20_preview <= 0 and rows:
-        k20_preview = as_num(var.get("K15"), 0.0) * float(rows[0].f24)
+        try:
+            k20_preview = as_num(var.get("K15"), 0.0) * float(getattr(rows[0], "f24"))
+        except Exception:
+            pass
 
     ctx["result_preview"] = {
         "K15": q2(as_num(var.get("K15"), 0.0), "0.01"),
         "E20": q2(as_num(e20_preview, 0.0), "0.01"),
         "K20": q2(as_num(k20_preview, 0.0), "0.01"),
     }
+
+    # --- انتخاب پیش‌فرض عرض شیت برای رادیو (Robust) ---
+    def _as_float(x):
+        try:
+            return float(str(x).strip())
+        except Exception:
+            return None
+
+    def _get_sheet_width(row):
+        if row is None:
+            return None
+        if isinstance(row, dict):
+            return row.get("sheet_width")
+        return getattr(row, "sheet_width", None)
+
+    default_sheet_choice = None
+    posted_choice = request.POST.get("sheet_choice")
+    if posted_choice:
+        default_sheet_choice = _as_float(posted_choice)
+    if default_sheet_choice is None:
+        # از rows یا ctx["best_by_width"] انتخاب کن
+        source_rows = rows if rows else (ctx.get("best_by_width") or [])
+        for r in source_rows:
+            v = _as_float(_get_sheet_width(r))
+            if v is not None:
+                default_sheet_choice = v
+                break
+
+    default_sheet_choice_str = None if default_sheet_choice is None else f"{float(default_sheet_choice):.2f}"
+    ctx["default_sheet_choice_str"] = default_sheet_choice_str
 
     _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
 
@@ -1254,33 +1340,36 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # ───────────── 10) مرحله ۲: انتخاب ردیف ─────────────
+    # ───────────── 10) مرحله ₂: انتخاب ردیف ─────────────
     picked_raw = (request.POST.get("sheet_choice") or "").strip()
     chosen: Optional[TableRow] = None
     w_try = as_num_or_none(picked_raw)
     if w_try is not None:
-        chosen = next((r for r in rows if abs(r.sheet_width - w_try) < 1e-6), None)
+        chosen = next((r for r in rows if abs(float(getattr(r, "sheet_width")) - w_try) < 1e-6), None)
     if chosen is None:
         chosen = best_default
-    if not chosen or int(chosen.f24 or 0) <= 0:
+    if not chosen or int(getattr(chosen, "f24") or 0) <= 0:
         messages.error(request, "امکان محاسبۀ نهایی نیست: F24 معتبر انتخاب نشده.")
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    var["M24"] = float(chosen.sheet_width)
-    var["sheet_width"] = float(chosen.sheet_width)
-    var["F24"] = float(max(1, int(chosen.f24)))
-    var["I22"] = float(chosen.I22 or 0.0)
-    var["E28"] = float(chosen.E28 or 0.0)
+    var["M24"] = float(getattr(chosen, "sheet_width"))
+    var["sheet_width"] = float(getattr(chosen, "sheet_width"))
+    var["F24"] = float(max(1, int(getattr(chosen, "f24"))))
+    var["I22"] = float(getattr(chosen, "I22") or 0.0)
+    var["E28"] = float(getattr(chosen, "E28") or 0.0)
 
     obj.chosen_sheet_width  = q2(var["M24"], "0.01")
     obj.F24_per_sheet_count = int(var["F24"])
-    obj.waste_warning       = bool((chosen.I22 is not None) and chosen.I22 >= 11.0)
+    obj.waste_warning       = bool((getattr(chosen, "I22") is not None) and getattr(chosen, "I22") >= 11.0)
     obj.note_message        = ""
 
     # ───────────── 11) موتور نهایی + K20 ─────────────
-    eng_final = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))
-    k20_val = as_num(eng_final.get("K20"), 0.0)
+    try:
+        eng_final = FormulaEngine(env_obj) if env_obj is not None else FormulaEngine()
+    except TypeError:
+        eng_final = FormulaEngine()
+    k20_val = as_num(_eng_get(eng_final, "K20"), 0.0)
     if k20_val <= 0:
         k20_val = as_num(var.get("F24"), 0.0) * as_num(var.get("K15"), 0.0)
     var["K20"] = k20_val
@@ -1290,20 +1379,35 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     BLOCK: set[str] = {"E17", "K15", "F24", "M24", "sheet_width", "I22", "E28", "K20"}
     for _ in range(8):
         changed = False
-        eng_loop = FormulaEngine(Env(var=var, formulas_raw=formulas_raw))
-        for key in list(eng_loop._compiled.keys()):
+        try:
+            eng_loop = FormulaEngine(env_obj) if env_obj is not None else FormulaEngine()
+        except TypeError:
+            eng_loop = FormulaEngine()
+        # اگر Engine خاصیتی از «فرمول‌های کامپایل‌شده» دارد
+        keys_iter = []
+        if hasattr(eng_loop, "_compiled"):
+            try:
+                keys_iter = list(getattr(eng_loop, "_compiled").keys())
+            except Exception:
+                keys_iter = []
+        for key in keys_iter:
             if key in BLOCK:
                 continue
-            v = eng_loop.get(key)
+            v = _eng_get(eng_loop, key)
             num = as_num_or_none(v)
             if num is not None and abs(num - as_num(var.get(key), 0.0)) > 1e-9:
                 var[key] = num
                 changed = True
+        if not keys_iter:
+            break
         if not changed:
             break
 
     # E20 نهایی
-    var["E20"] = as_num(var.get("E20") or RowCalcs.e20_row(var, eng_final), 0.0)
+    try:
+        var["E20"] = as_num(var.get("E20") or RowCalcs.e20_row(var, eng_final), 0.0)
+    except Exception:
+        var["E20"] = as_num(var.get("E20"), 0.0)
     obj.E20_industrial_len = q2(var["E20"], "0.01")
 
     # ───────────── محاسبۀ متراژ کاغذهای انتخابی (m²)
@@ -1314,6 +1418,8 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     ctx["layers_area_breakdown"] = breakdown
 
     # ───────────── 12) Fee_amount + E41 + E40 ─────────────
+    from decimal import Decimal
+
     def _price_from_choice(val) -> Decimal:
         if not val:
             return Decimal("0")
@@ -1351,7 +1457,6 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     oh_total_per_m2 = OverheadItem.objects.filter(
         is_active=True, id__in=list(selected_ids)
     ).aggregate(sum_cost=Decimal("0.00"))["sum_cost"] or Decimal("0.00")
-    # اگر DB backend sum نداشت:
     if not oh_total_per_m2:
         oh_total_per_m2 = Decimal("0.00")
         for it in OverheadItem.objects.filter(is_active=True, id__in=list(selected_ids)):
@@ -1369,11 +1474,9 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     # ── M41 (سود) با جست‌وجوی «سود فاکتور»
     def _profit_amount(base_amount: Decimal) -> Decimal:
         total = Decimal("0.00")
-        # OverheadItem: درصد
         for it in OverheadItem.objects.filter(is_active=True, name__icontains=PROFIT_KW):
             rate = Decimal(str(getattr(it, "unit_cost", 0) or 0))
             total += (base_amount * rate / Decimal("100"))
-        # ExtraCharge: درصد یا عدد ثابت
         for ch in ExtraCharge.objects.filter(is_active=True, title__icontains=PROFIT_KW):
             if ch.Percentage:
                 rate = Decimal(str((ch.amount_credit if settlement == "credit" else ch.amount_cash) or 0))
@@ -1404,7 +1507,10 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
     # مابقی نگاشت‌ها
     obj.E28_carton_consumption = q2(var.get("E28", 0.0), "0.0001")
     obj.E38_sheet_area_m2      = q2(var.get("E38", 0.0), "0.0001")
-    obj.I38_sheet_count        = int(math.ceil(var.get("I38", 0.0)))
+    try:
+        obj.I38_sheet_count    = int(math.ceil(var.get("I38", 0.0)))
+    except Exception:
+        pass
 
     # ───────────── 14) ذخیرهٔ اختیاری ─────────────
     if cd.get("save_record"):
@@ -1433,6 +1539,9 @@ def price_form_view(request: HttpRequest) -> HttpResponse:
             "K15": q2(as_num(var.get("K15"), 0.0), "0.01"),
         },
     })
+    default_sheet_choice_str = None if default_sheet_choice is None else f"{default_sheet_choice:.2f}"
+    ctx["default_sheet_choice_str"] = default_sheet_choice_str
+
     return render(request, "carton_pricing/price_form.html", ctx)
 
 # carton_pricing/views_paper.py

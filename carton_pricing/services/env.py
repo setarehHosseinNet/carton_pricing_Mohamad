@@ -99,3 +99,46 @@ class SettingsLoader:
     # در صورت نیاز اگر جایی instance-method صدا زده باشی:
     def load_latest_instance(self) -> _DotNS:
         return self.__class__.load_latest()
+
+    @staticmethod
+    def inject(bs, settlement, var: dict, cd: dict | None = None) -> dict:
+        """
+        bs: آبجکت تنظیمات (خروجی load_latest) — ممکنه DotNS باشه
+        settlement: تنظیمات تسویه/پرداخت (هرچی ویو پاس میده؛ dict یا آبجکت)
+        var: دیکشنری متغیرهای محاسباتی که باید با تنظیمات پر/تکمیل بشه
+        cd: cleaned_data فرم (اختیاری)
+
+        این متد باید «مقادیر موجود» رو نگه داره و فقط اگر کلیدی موجود نیست، از bs/settlement مقدار بده.
+        """
+        if var is None:
+            var = {}
+
+        def _get(obj, name, default=None):
+            if obj is None:
+                return default
+            # پشتیبانی از هم attribute هم dict
+            if isinstance(obj, dict):
+                return obj.get(name, default)
+            return getattr(obj, name, default)
+
+        # از تنظیمات کلی (bs) مقدار بده—فقط اگر قبلاً داخل var نیست یا None است
+        for key in ("tax_percent", "profit_rate_default", "currency", "round_price", "sheet_fixed_widths_mm"):
+            val = _get(bs, key, None)
+            if val is not None and (key not in var or var.get(key) is None):
+                var[key] = val
+
+        # اگر settlement دیکشنری/آبجکت قابل خواندن بود، مقادیر مفید را تزریق کن
+        # (کلیدهای احتمالی: payment_type, fee_amount, discount_percent, due_days, ...)
+        for key in ("payment_type", "fee_amount", "discount_percent", "due_days"):
+            val = _get(settlement, key, None)
+            if val is not None and (key not in var or var.get(key) is None):
+                var[key] = val
+
+        # اگر از cleaned_data چیز خاصی لازم داری (اختیاری)
+        if cd:
+            # مثال‌ها؛ در صورت نیاز کلیدهای واقعی پروژه‌ات را اضافه کن
+            for key in ("E20_industrial_len", "K20_industrial_wid"):
+                if key in cd and (key not in var or var.get(key) is None):
+                    var[key] = cd.get(key)
+
+        return var
