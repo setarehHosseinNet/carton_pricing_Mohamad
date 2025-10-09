@@ -245,7 +245,8 @@
            {% if request.POST.sheet_choice|floatformat:2 == r.sheet_width|floatformat:2 %}checked{% endif %}
          {% else %}
            {# پیش‌فرض: عرض بهترین ردیف سبز که از ویو آمد #}
-           {% if default_sheet_choice_str and (r.sheet_width|floatformat:2 == default_sheet_choice_str) %}checked{% endif %}
+          {% if default_sheet_choice_str|default_if_none:'' and r.sheet_width|floatformat:2 == default_sheet_choice_str|floatformat:2 %}checked{% endif %}
+
          {% endif %}>
 </td>
 
