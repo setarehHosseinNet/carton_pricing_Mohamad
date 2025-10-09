@@ -2,14 +2,12 @@
 from __future__ import annotations
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Optional, Mapping
 
 class Env:
-    """
-    خواندن ساده متغیرهای محیطی با مقدار پیش‌فرض.
-    base_dir صرفاً برای نیازهای بعدی نگه داشته شده.
-    """
+    """خواندن ساده متغیرهای محیطی با مقدار پیش‌فرض."""
     def __init__(self, base_dir: str | Path | None = None):
-        # ریشهٔ پروژه را اگر لازم شد داشته باشیم
         self.base_dir = Path(base_dir or Path(__file__).resolve().parents[2])
 
     def str(self, key: str, default: str | None = None) -> str | None:
@@ -29,15 +27,23 @@ class Env:
             return default
 
 
+class _DotNS(SimpleNamespace):
+    """Namespace که برای کلیدهای ناموجود None برمی‌گرداند تا AttributeError نخوریم."""
+    def __getattr__(self, name):
+        return None
+
+
 class SettingsLoader:
     """
-    یک Loader ساده برای استفاده در settings.py یا سرویس‌های دیگر.
+    Loader تنظیمات برنامه.
+    - متدهای env: برای ENV
+    - load_latest(): آخرین تنظیمات بیزنسی از DB؛ اگر نبود، Fallback منطقی.
     """
     def __init__(self, base_dir: str | Path | None = None):
         self.env = Env(base_dir=base_dir)
 
-    def db_url(self) -> str | None:
-        # مثال: خواندن DATABASE_URL (اگر داری)
+    # ===== موجود قبلی =====
+    def db_url(self) -> Optional[str]:
         return self.env.str("DATABASE_URL")
 
     def secret_key(self) -> str:
@@ -45,3 +51,51 @@ class SettingsLoader:
 
     def debug(self) -> bool:
         return self.env.bool("DJANGO_DEBUG", True)
+
+    # ===== جدید: برای سازگاری با views.py =====
+    @classmethod
+    def load_latest(cls) -> _DotNS:
+        """
+        تلاش می‌کند از مدل تنظیمات (اگر وجود داشته باشد) آخرین رکورد را بخواند.
+        اگر مدل/دیتا نبود، یک fallback امن برمی‌گرداند تا view ها AttributeError نخورند.
+        """
+        # تلاش برای خواندن از DB اگر مدلی با نام‌های رایج وجود داشته باشد
+        # هر کدام بود، از همان استفاده می‌کنیم.
+        candidates = ("BusinessSettings", "AppSettings", "Settings", "SiteSettings")
+        try:
+            from django.apps import apps  # django آماده است این‌جا
+            for model_name in candidates:
+                model = apps.get_model("carton_pricing", model_name)
+                if model is None:
+                    continue
+                obj = model.objects.order_by("-id").first()
+                if obj:
+                    # اگر مدل متدی برای dict دارد
+                    if hasattr(obj, "to_dict"):
+                        return _DotNS(**(obj.to_dict() or {}))
+                    # یا اگر فیلدهای رایج دارد
+                    data = {}
+                    for f in getattr(obj, "_meta").get_fields():
+                        # فقط فیلدهای ساده
+                        if hasattr(obj, f.name) and not f.many_to_many and not f.one_to_many:
+                            try:
+                                data[f.name] = getattr(obj, f.name)
+                            except Exception:
+                                pass
+                    return _DotNS(**data)
+        except Exception:
+            # اگر مدل نبود/DB آماده نبود، می‌افتیم روی fallback
+            pass
+
+        # ---- Fallback منطقی (می‌توانی بسته به نیاز پروژه تغییر دهی) ----
+        return _DotNS(
+            tax_percent=9.0,                 # درصد مالیات
+            profit_rate_default=0.15,        # حاشیه سود پیش‌فرض
+            sheet_fixed_widths_mm=[1000, 1050, 1100, 1200],  # عرض‌های استاندارد
+            currency="IRR",
+            round_price=True,
+        )
+
+    # در صورت نیاز اگر جایی instance-method صدا زده باشی:
+    def load_latest_instance(self) -> _DotNS:
+        return self.__class__.load_latest()
