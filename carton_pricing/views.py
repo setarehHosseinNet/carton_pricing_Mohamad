@@ -950,14 +950,23 @@ from .forms import PriceForm, FLAG_FIELD_NAMES
 from .models import (
     PriceQuotation, Paper, OverheadItem, ExtraCharge,
 )
-from .services import (
-    Env, SettingsLoader,
-    FormulaEngine, CalcFormula,
+# 1) چیزهایی که در پکیج services هستند:
+from .services import Env, SettingsLoader, FormulaEngine
+
+# 2) چیزهایی که مربوط به legacy (services.py قدیمی) هستند:
+from .legacy_services import (
+    CalcFormula,
     K15Calculator,
     TableBuilder, TableRow, RowCalcs,
     E17Calculator,
-    CompositionAreaCalculator,
+    # اگر آنجا تابع choose_per_sheet_and_width هم لازم داری:
+    choose_per_sheet_and_width,
 )
+
+# 3) این یکی از ماژول area می‌آید (الان داری):
+from .services.area import CompositionAreaCalculator
+
+
 from .services.area import CompositionAreaCalculator
 from .utils import as_num, as_num_or_none, q2
 
