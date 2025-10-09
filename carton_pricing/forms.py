@@ -326,7 +326,10 @@ class PriceForm(NormalizeDigitsModelForm):
     # ---------- init ----------
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
+        for fld in ("pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer"):
+            if fld in self.fields:
+                self.fields[fld].required = False
+                self.fields[fld].empty_label = "---------"
         # اگر به هر دلیل payment_type هنوز در فرم بود، اختیاری و سپس حذفش کن
         if "payment_type" in self.fields:
             self.fields["payment_type"].required = False

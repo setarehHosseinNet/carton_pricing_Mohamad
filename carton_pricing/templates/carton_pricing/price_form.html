@@ -36,7 +36,6 @@
 
 <form method="post" id="priceForm" class="card card-body shadow-sm mb-4" dir="rtl" novalidate>
   {% csrf_token %}
-  {# مقدار پیش‌فرض مرحله؛ دکمه‌ها هم name="stage" خواهند داشت #}
   <input type="hidden" name="stage" id="stageField" value="{{ ui_stage|default:'s1' }}"/>
 
   {# ───────── سربرگ: مشتری / تماس / تنظیم‌کننده ───────── #}
@@ -56,7 +55,7 @@
     </div>
   </div>
 
-  {# فیلدهای مخفی واقعی برای ارسال #}
+  {# فیلدهای واقعی برای POST #}
   {{ form.customer }}
   {{ form.contact_phone }}
 
@@ -207,7 +206,10 @@
 
     {# ───────── دکمه محاسبه جدول (مرحله s1) ───────── #}
     <div class="text-end mt-3">
-      <button class="btn btn-outline-primary" type="submit" name="stage" value="s1" formnovalidate>
+      <button class="btn btn-outline-primary"
+              type="submit"
+              name="stage" value="s1"
+              formnovalidate>
         محاسبه جدول
       </button>
     </div>
@@ -313,7 +315,7 @@
 
   {# ───────── نتیجه ───────── #}
   {% if ui_stage == 'final' %}
-    <div class="card shadow-sm">
+    <div class="card shadow-sm mt-3">
       <div class="card-header">نتیجه محاسبات</div>
       <div class="card-body">
         <div class="row g-3">
@@ -351,12 +353,38 @@
     </div>
   {% endif %}
 </form>
+<script>
+(function(){
+  "use strict";
+  const form = document.getElementById('priceForm');
+  document.querySelectorAll('button[type="submit"][data-stage]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      console.log('[UI] click submit:', {btnText: btn.textContent.trim(), stage: btn.dataset.stage});
+      const sf = document.getElementById('stageField');
+      if (sf) console.log('[UI] hidden stage before submit:', sf.value);
+    });
+  });
+
+  form?.addEventListener('submit', (e)=>{
+    const fd = new FormData(form);
+    const all = {};
+    for (const [k,v] of fd.entries()) {
+      if (k in all) {
+        if (Array.isArray(all[k])) all[k].push(v); else all[k] = [all[k], v];
+      } else {
+        all[k]=v;
+      }
+    }
+    console.log('[UI] submitting… payload:', all);
+  });
+})();
+</script>
 
 <script>
 (function () {
   "use strict";
 
-  // ===== درب باز =====
+  // درب باز
   function toggleOpenDoorExtras(show) {
     document.querySelectorAll('.open-door-extra').forEach(el=>{
       el.classList.toggle('d-none', !show);
@@ -377,7 +405,7 @@
   }
   function updateByA3(){ toggleOpenDoorExtras(isOpenDoorSelected()); }
 
-  // ===== گام فلوت ⇒ نمایش ستون‌های ترکیب کاغذ =====
+  // نمایش ستون‌های ترکیب کاغذ با توجه به گام فلوت
   function showWrap(id, show){
     const el = document.getElementById(id);
     if(!el) return;
@@ -394,22 +422,10 @@
     const t = currentFluteText();
     let showGlue=true, showBE=true, showMid=true, showC=true, showBottom=true;
 
-    if (/(^|[^A-Z])C([^A-Z]|$)/.test(t)) {
-      showGlue = true; showC = true; showBottom = true;
-      showBE = false;  showMid = false;
-    }
-    else if (/(^|[^A-Z])D([^A-Z]|$)/.test(t)) {
-      showGlue = true; showBE = true; showBottom = true;
-      showC = false;   showMid = false;
-    }
-    else if (/(^|[^A-Z])E([^A-Z]|$)/.test(t)) {
-      showGlue = true; showBE = true; showBottom = true;
-      showC = false;   showMid = false;
-    }
-    else if (/(^|[^A-Z])B([^A-Z]|$)/.test(t)) {
-      showGlue = true; showBE = true; showBottom = true;
-      showC = false;   showMid = false;
-    }
+    if (/(^|[^A-Z])C([^A-Z]|$)/.test(t)) { showGlue = true; showC = true; showBottom = true; showBE = false; showMid = false; }
+    else if (/(^|[^A-Z])D([^A-Z]|$)/.test(t)) { showGlue = true; showBE = true; showBottom = true; showC = false; showMid = false; }
+    else if (/(^|[^A-Z])E([^A-Z]|$)/.test(t)) { showGlue = true; showBE = true; showBottom = true; showC = false; showMid = false; }
+    else if (/(^|[^A-Z])B([^A-Z]|$)/.test(t)) { showGlue = true; showBE = true; showBottom = true; showC = false; showMid = false; }
 
     showWrap('wrap-glue',   showGlue);
     showWrap('wrap-be',     showBE);
@@ -418,11 +434,9 @@
     showWrap('wrap-bottom', showBottom);
   }
 
-  // UX ارسال
+  // اسپینر
   const btnSpinner = document.getElementById('btnSpinner');
-  document.getElementById('priceForm')?.addEventListener('submit', ()=>{
-    btnSpinner?.classList.remove('d-none');
-  });
+  document.getElementById('priceForm')?.addEventListener('submit', ()=>{ btnSpinner?.classList.remove('d-none'); });
 
   window.addEventListener('load', function(){
     updateByA3();
@@ -440,7 +454,7 @@
 </script>
 
 <style>
-  .form-check-inline .form-check-input{margin-inline:.25rem;}
-  .form-check-inline{margin-bottom:0}
+  .form-check-inline .form-check-input { margin-inline: .25rem; }
+  .form-check-inline { margin-bottom: 0; }
 </style>
 {% endblock %}
