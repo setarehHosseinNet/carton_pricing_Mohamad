@@ -359,6 +359,7 @@ class PriceForm(NormalizeDigitsModelForm):
 
     # ---------- init ----------
     def __init__(self, *args, **kwargs):
+
         # می‌توانی customer را از ویو بدهی تا فیلتر سفارشی اعمال شود
         self._customer = kwargs.pop("customer", None)
         super().__init__(*args, **kwargs)
@@ -417,6 +418,17 @@ class PriceForm(NormalizeDigitsModelForm):
         cflute_qs  = paper_qs.filter(group__name="C Flute")
         mid_qs     = paper_qs.filter(group__name__in=["Middle", "Inner"])
         bottom_qs  = paper_qs.filter(group__name__in=["Bottom", "Liner"])
+
+        # --- تضمین وجود انتخاب‌های قبلی حتی اگر از فیلتر عرض خارج شوند ---
+        instance_paper_ids = []
+        for f in ["pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer"]:
+            if hasattr(self.instance, f) and getattr(self.instance, f):
+                instance_paper_ids.append(getattr(self.instance, f).id)
+        # الحاق مقادیر قبلی به queryset نهایی
+        if instance_paper_ids:
+            paper_qs = Paper.objects.filter(
+                dj_models.Q(width_cm__gte=chosen_width) | dj_models.Q(id__in=instance_paper_ids)
+            ).distinct()
 
         # -------- Glue machine queryset (ایمن در نبود مدل) --------
         glue_field = self._resolve_field_name("pq_glue_machine", "pq_as_glue_machine")
