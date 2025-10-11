@@ -1033,51 +1033,115 @@ def price_form_view(request) -> Any:
     print(">>> price_form_view:", request.method, "path=", request.path)
     logger.info("price_form_view start: method=%s path=%s", request.method, request.path)
 
-    # 0) تنظیمات + کانتکست پایه
+    # ---------- تنظیمات + کانتکست پایه ----------
     bs = SettingsLoader.load_latest()
     ctx: Dict[str, Any] = {"settings": bs}
     copy_from = (request.GET.get("copy_from") or request.POST.get("copy_from") or "").strip()
     PROFIT_KW = "سود فاکتور"
 
-    # --- اضافه: مشتری برای فیلترهای فرم ---
-    customer_id = request.GET.get("customer") or request.POST.get("customer")
-    customer = None
-    try:
-        if customer_id:
-            customer = Customer.objects.filter(pk=int(customer_id)).first()
-    except Exception:
-        customer = None
+    # ---------- هلسپرهای مشتری ----------
+    def _get_customer_from_request(req):
+        cid = req.GET.get("customer") or req.POST.get("customer")
+        if not cid:
+            return None
+        try:
+            cust = Customer.objects.get(pk=int(cid))  # بدون only → مقاوم
+            print("DBG customer param=", cid, "found:", bool(cust))
+            return cust
+        except Exception as e:
+            print("DBG customer fetch failed:", e)
+            return None
 
-    # --- اضافه: سازندهٔ امن فرم (بدون حذف _build_form قدیمی) ---
+    def _get_customer_from_request(req):
+        """مشتری را از ?customer=<id> یا POST['customer'] می‌آورد (ایمن و بدون only)."""
+        cid = req.GET.get("customer") or req.POST.get("customer")
+        if not cid:
+            return None
+        try:
+            cust = Customer.objects.get(pk=int(cid))
+            # دیباگ اختیاری:
+            # print("DBG customer:", cust.pk, str(cust))
+            return cust
+        except Exception:
+            return None
+
+    def _get_customer_phone(cust) -> str:
+        """
+        تلفن مشتری را برگردان:
+        1) ابتدا میان فیلدهای رایج (contact_phone/phone/mobile/...) جست‌وجو می‌کند.
+        2) اگر نبود، به‌صورت داینامیک هر فیلدی که نامش شامل phone/tel/«تلفن/موب» است را چک می‌کند.
+        3) اگر باز هم نبود، از آخرین سفارش همان مشتری تلفن را برمی‌دارد.
+        """
+        if not cust:
+            return ""
+
+        # 1) فیلدهای رایج به‌ترتیب ترجیح
+        common_fields = (
+            "contact_phone", "phone", "mobile", "cell", "cellphone",
+            "telephone", "tel", "phone_number", "mobile_number"
+        )
+        for fld in common_fields:
+            if hasattr(cust, fld):
+                v = getattr(cust, fld) or ""
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+
+        # 2) جست‌وجوی داینامیک روی تمام اتربیوت‌های مدل (برای نام‌های سفارشی/فارسی)
+        try:
+            for name, val in vars(cust).items():
+                # فقط رشته‌ها مهم‌اند
+                if not isinstance(val, str):
+                    continue
+                lname = str(name).lower()
+                if ("phone" in lname) or ("tel" in lname) or ("تلفن" in name) or ("موب" in name):
+                    if val.strip():
+                        return val.strip()
+        except Exception:
+            pass
+
+        # 3) fallback: از آخرین سفارش همین مشتری
+        try:
+            last = (PriceQuotation.objects
+                    .filter(customer_id=cust.id)
+                    .exclude(contact_phone__isnull=True)
+                    .exclude(contact_phone__exact="")
+                    .order_by("-id")
+                    .first())
+            if last and last.contact_phone:
+                return str(last.contact_phone).strip()
+        except Exception:
+            pass
+
+        return ""
+
+    # --- استفاده ---
+    req_customer = _get_customer_from_request(request)
+
+    # ---------- سازندهٔ امن فرم ----------
     def _build_form_safe(*, request, initial=None, stage="s1"):
         """
         تلاش می‌کند از _build_form پروژه استفاده کند؛ اگر signature آن پارامتر customer را نپذیرفت
-        یا اصلاً در دسترس نبود، مستقیم PriceForm را می‌سازد.
+        یا اصلاً موجود نبود، مستقیم PriceForm را می‌سازد.
         """
+        # به فرم، خود آبجکت مشتری را هم پاس بده تا __init__ بتواند فیلتر کند
         try:
-            # حالت ایده‌آل: _build_form موجود و پارامتر customer را می‌پذیرد
-            return _build_form(request=request, initial=initial, stage=stage, customer=customer)
+            return _build_form(request=request, initial=initial, stage=stage, customer=req_customer)
         except TypeError:
-            # نسخه‌ای از _build_form که پارامتر customer ندارد
             try:
                 return _build_form(request=request, initial=initial, stage=stage)
             except Exception:
                 pass
         except NameError:
-            # اصلاً تعریف نشده
             pass
 
-        #Fallback: خودمان PriceForm بسازیم (با حفظ منطق initial و stage)
         if request.method == "POST":
-            return PriceForm(request.POST, request.FILES, initial=initial, customer=customer)
-        else:
-            return PriceForm(initial=initial, customer=customer)
+            return PriceForm(request.POST, request.FILES, initial=initial, customer=req_customer)
+        return PriceForm(initial=initial, customer=req_customer)
 
     def _truthy(v: Any) -> bool:
         return str(v).strip().lower() in {"1", "true", "t", "y", "yes", "on"}
 
     def _overheads_qs():
-        # توجه: اگر مدل OverheadItem فیلد name ندارد، این order_by را با فیلد صحیح عوض کن
         return OverheadItem.objects.filter(is_active=True).order_by("name")
 
     def _selected_overhead_ids(req) -> set[int]:
@@ -1120,7 +1184,7 @@ def price_form_view(request) -> Any:
             "pq_bottom_layer":  src.pq_bottom_layer_id,
             # «درب باز پایین»
             "open_bottom_door": getattr(src, "E18_lip", None),
-            # کمک به فیلتر عرض ورق در فرم (اگر فرم از initial استفاده کند)
+            # کمک به فیلتر عرض ورق در فرم
             "chosen_sheet_width": getattr(src, "chosen_sheet_width", None),
         }
         for name in FLAG_FIELD_NAMES:
@@ -1152,13 +1216,20 @@ def price_form_view(request) -> Any:
         ctx["a6"] = a6_str
         return v
 
-    # قفل از سفارش
+    # ---------- قفل از سفارش/مشتری ----------
     lock_initial: dict | None = None
     src_order: Optional[PriceQuotation] = None
     if copy_from.isdigit():
         src_order = PriceQuotation.objects.filter(pk=int(copy_from)).first()
         if src_order:
             lock_initial = {"customer": src_order.customer_id, "contact_phone": src_order.contact_phone}
+
+    # اگر کپی از سفارش نداریم ولی customer داریم → قفل از مشتری
+    if not lock_initial and req_customer:
+        lock_initial = {
+            "customer": req_customer.id,
+            "contact_phone": _get_customer_phone(req_customer),
+        }
 
     def _fill_last_order_context(customer_id: Optional[int]):
         ctx["today_jalali"] = _today_jalali()
@@ -1184,7 +1255,7 @@ def price_form_view(request) -> Any:
         if price is not None:
             ctx["last_order_price"] = price
 
-    # 1) GET
+    # ---------- 1) GET ----------
     if request.method != "POST":
         initial: dict = {
             "A1_layers": 1, "A2_pieces": 1, "A3_door_type": 1, "A4_door_count": 1,
@@ -1198,9 +1269,8 @@ def price_form_view(request) -> Any:
         if lock_initial:
             initial.update(lock_initial)
 
-        # ← فرم با customer ساخته می‌شود تا QuerySetها در __init__ درست باشند
         form = _build_form_safe(request=request, initial=initial, stage="s1")
-        _fill_last_order_context(lock_initial.get("customer") if lock_initial else (int(customer_id) if customer_id else None))
+        _fill_last_order_context((lock_initial or {}).get("customer"))
 
         ctx.update({
             "form": form,
@@ -1215,11 +1285,10 @@ def price_form_view(request) -> Any:
         })
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # 2) POST: فرم + اعتبارسنجی
+    # ---------- 2) POST ----------
     stage_vals = request.POST.getlist("stage")
     stage = (stage_vals[-1] if stage_vals else (request.POST.get("stage") or "s1")).strip().lower()
 
-    # ← فرم بایندشده با customer
     form = _build_form_safe(request=request, initial=lock_initial, stage=stage)
     ctx.update({
         "form": form,
@@ -1235,7 +1304,7 @@ def price_form_view(request) -> Any:
     if not form.is_valid():
         print(">>> form.errors =", dict(form.errors))
         logger.warning("price_form_view invalid form: %s", dict(form.errors))
-        _fill_last_order_context(lock_initial.get("customer") if lock_initial else (int(customer_id) if customer_id else None))
+        _fill_last_order_context((lock_initial or {}).get("customer"))
         ctx["errors"] = form.errors
         return render(request, "carton_pricing/price_form.html", ctx)
 
@@ -1247,7 +1316,7 @@ def price_form_view(request) -> Any:
         if "contact_phone" in lock_initial:
             obj.contact_phone = lock_initial["contact_phone"]
 
-    # 3) متغیرها + تنظیمات سبک
+    # ---------- 3) متغیرها + تزریق تنظیمات ----------
     settlement = _settlement_from_post()
     ctx["settlement"] = settlement
     ctx["credit_days"] = int(as_num(request.POST.get("credit_days"), 0))
@@ -1259,7 +1328,7 @@ def price_form_view(request) -> Any:
     except Exception:
         pass
 
-    # 4) فرمول‌های هاردکد
+    # ---------- 4) فرمول‌ها ----------
     def compute_E17(tail: int, g15: float, cd: dict) -> float:
         return float(as_num(cd.get("E17_lip"), 0.0))
 
@@ -1295,7 +1364,7 @@ def price_form_view(request) -> Any:
             return min(nonnull, key=lambda r: float(r.I22))
         return rows[0] if rows else None
 
-    # محاسبات اولیه
+    # ---------- محاسبات اولیه ----------
     tail = (var["A6"] % 100) if var["A6"] else 0
     var["E17"] = compute_E17(tail=tail, g15=as_num(var.get("G15"), 0.0), cd=cd)
     try:
@@ -1310,7 +1379,7 @@ def price_form_view(request) -> Any:
     logger.debug("DBG E17=%s I17=%s K15=%s E20_preview=%s", var["E17"], var["I17"], var["K15"], e20_preview)
     print(">>> DBG E17=", var["E17"], "I17=", var["I17"], "K15=", var["K15"], "E20_preview=", e20_preview)
 
-    # 5) جدول مرحله ۱
+    # ---------- 5) جدول مرحله ۱ ----------
     fixed_widths = (
         getattr(bs, "fixed_widths", None)
         or getattr(bs, "sheet_fixed_widths_mm", None)
@@ -1337,16 +1406,16 @@ def price_form_view(request) -> Any:
             pass
     ctx["default_sheet_choice_str"] = None if default_sheet_choice is None else f"{default_sheet_choice:.2f}"
 
-    _fill_last_order_context(lock_initial.get("customer") if lock_initial else (int(customer_id) if customer_id else None))
+    _fill_last_order_context((lock_initial or {}).get("customer"))
 
-    # 6) نمایش مرحله ۱
+    # ---------- 6) نمایش مرحله ۱ ----------
     if stage != "final":
         logger.info("render s1: rows=%s", len(rows))
         print(">>> RENDER s1 with rows:", len(rows))
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
-    # 7) مرحله نهایی
+    # ---------- 7) مرحله نهایی ----------
     w_try = as_num_or_none((request.POST.get("sheet_choice") or "").strip())
     chosen = None
     if w_try is not None:
@@ -1393,7 +1462,7 @@ def price_form_view(request) -> Any:
     )
     print(">>> FINAL", "M24=", var["M24"], "F24=", var["F24"], "I22=", var["I22"], "E28=", var["E28"], "K20=", var["K20"])
 
-    # 8) هزینه‌ها
+    # ---------- 8) هزینه‌ها ----------
     def _price_from_choice(val) -> Decimal:
         if not val:
             return Decimal("0")
@@ -1443,7 +1512,6 @@ def price_form_view(request) -> Any:
 
     def _profit_amount(base_amount: Decimal) -> Decimal:
         total = Decimal("0.00")
-        # توجه: اگر OverheadItem فیلد name ندارد، name__icontains را با فیلد درست عوض کن
         for it in OverheadItem.objects.filter(is_active=True, name__icontains=PROFIT_KW):
             rate = Decimal(str(getattr(it, "unit_cost", 0) or 0))
             total += (base_amount * rate / Decimal("100"))
@@ -1478,6 +1546,7 @@ def price_form_view(request) -> Any:
     except Exception:
         pass
 
+    # ---------- 9) ذخیرهٔ اختیاری ----------
     # 9) ذخیرهٔ اختیاری
     if cd.get("save_record"):
         with transaction.atomic():
@@ -1491,8 +1560,10 @@ def price_form_view(request) -> Any:
                 pass
             obj.save()
         messages.success(request, "برگه قیمت ذخیره شد.")
+        # ⬇️⬇️ اگر تیک خورده بود، مستقیم برو برای گرفتن شماره راهکاران
+        return redirect("carton_pricing:link_rahkaran_invoice", pk=obj.pk)
 
-    # 10) خروجی
+    # ---------- 10) خروجی ----------
     ctx.update({
         "result": obj,
         "vars": var,
@@ -1547,3 +1618,26 @@ def paper_update_view(request, pk: int):
 
 
 
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from .forms import RahkaranInvoiceForm
+
+def link_rahkaran_invoice(request, pk: int):
+    quotation = get_object_or_404(PriceQuotation, pk=pk)
+
+    if request.method == "POST":
+        form = RahkaranInvoiceForm(request.POST)
+        if form.is_valid():
+            quotation.rahkaran_invoice_no = form.cleaned_data["invoice_no"].strip()
+            quotation.save(update_fields=["rahkaran_invoice_no"])
+            messages.success(request, "شماره فاکتور راهکاران ذخیره شد.")
+            # مقصد دلخواهت:
+            return redirect("/")   # ← روت سایت # یا جزئیات سفارش
+    else:
+        form = RahkaranInvoiceForm(initial={"invoice_no": quotation.rahkaran_invoice_no or ""})
+
+    return render(request, "carton_pricing/link_rahkaran_invoice.html", {
+        "form": form,
+        "quotation": quotation,
+        "title": "ثبت شماره فاکتور راهکاران",
+    })

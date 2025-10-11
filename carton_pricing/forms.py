@@ -646,3 +646,15 @@ class OverheadItemForm(forms.ModelForm):
             "unit_cost": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
             "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
+
+# carton_pricing/forms.py
+from django import forms
+
+class RahkaranInvoiceForm(forms.Form):
+    invoice_no = forms.CharField(
+        label="شماره فاکتور راهکاران",
+        max_length=100,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "dir": "ltr", "placeholder": "مثلاً FR-1404-00123"}
+        ),
+    )

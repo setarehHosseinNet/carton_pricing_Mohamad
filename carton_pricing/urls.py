@@ -89,4 +89,6 @@ urlpatterns = [
     path("overheads/new/", OverheadItemCreateView.as_view(), name="overhead_create"),
     path("overheads/<int:pk>/edit/", OverheadItemUpdateView.as_view(), name="overhead_update"),
     path("overheads/<int:pk>/delete/", OverheadItemDeleteView.as_view(), name="overhead_delete"),
+
+    path("quotation/<int:pk>/rahkaran/", views.link_rahkaran_invoice, name="link_rahkaran_invoice"),
 ]

@@ -344,7 +344,10 @@ class PriceQuotation(TimeStamped):
 
     waste_warning = models.BooleanField("هشدار دورریز ≥ 11؟", default=False)
     note_message = models.CharField("پیغام/یادداشت F24", max_length=300, blank=True)
-
+    rahkaran_invoice_no = models.CharField(
+        max_length=100, blank=True, null=True, db_index=True,
+        verbose_name="شماره فاکتور راهکاران"
+    )
     class Meta:
         ordering = ("-created_at", "-id")
 

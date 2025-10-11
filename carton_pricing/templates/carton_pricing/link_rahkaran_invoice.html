@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="card-header">ثبت شماره فاکتور راهکاران</div>
+  <div class="card-body">
+    <p class="mb-3">
+      مشتری: <strong>{{ quotation.customer }}</strong>
+      {% if quotation.product_code %} | کد محصول: <span dir="ltr">{{ quotation.product_code }}</span>{% endif %}
+      | شناسه برگه: {{ quotation.id }}
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        {{ form.invoice_no.label_tag }}
+        {{ form.invoice_no }}
+        {% if form.invoice_no.errors %}
+          <div class="text-danger small">{{ form.invoice_no.errors }}</div>
+        {% endif %}
+      </div>
+      <button type="submit" class="btn btn-primary">ذخیره</button>
+      <a href="/" class="btn btn-secondary">انصراف</a>
+    </form>
+  </div>
+</div>
+{% endblock %}
