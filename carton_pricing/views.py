@@ -991,7 +991,7 @@ def _build_form(*, request, initial: dict | None = None, stage: str = "s1") -> P
                 f = form.fields[fld]
                 f.required = False
                 f.empty_label = "---------"
-                f.queryset = Paper.objects.all().order_by("name")
+                f.queryset = Paper.objects.all().order_by("name_paper")
 
     return form
 
@@ -1039,10 +1039,45 @@ def price_form_view(request) -> Any:
     copy_from = (request.GET.get("copy_from") or request.POST.get("copy_from") or "").strip()
     PROFIT_KW = "سود فاکتور"
 
+    # --- اضافه: مشتری برای فیلترهای فرم ---
+    customer_id = request.GET.get("customer") or request.POST.get("customer")
+    customer = None
+    try:
+        if customer_id:
+            customer = Customer.objects.filter(pk=int(customer_id)).first()
+    except Exception:
+        customer = None
+
+    # --- اضافه: سازندهٔ امن فرم (بدون حذف _build_form قدیمی) ---
+    def _build_form_safe(*, request, initial=None, stage="s1"):
+        """
+        تلاش می‌کند از _build_form پروژه استفاده کند؛ اگر signature آن پارامتر customer را نپذیرفت
+        یا اصلاً در دسترس نبود، مستقیم PriceForm را می‌سازد.
+        """
+        try:
+            # حالت ایده‌آل: _build_form موجود و پارامتر customer را می‌پذیرد
+            return _build_form(request=request, initial=initial, stage=stage, customer=customer)
+        except TypeError:
+            # نسخه‌ای از _build_form که پارامتر customer ندارد
+            try:
+                return _build_form(request=request, initial=initial, stage=stage)
+            except Exception:
+                pass
+        except NameError:
+            # اصلاً تعریف نشده
+            pass
+
+        #Fallback: خودمان PriceForm بسازیم (با حفظ منطق initial و stage)
+        if request.method == "POST":
+            return PriceForm(request.POST, request.FILES, initial=initial, customer=customer)
+        else:
+            return PriceForm(initial=initial, customer=customer)
+
     def _truthy(v: Any) -> bool:
         return str(v).strip().lower() in {"1", "true", "t", "y", "yes", "on"}
 
     def _overheads_qs():
+        # توجه: اگر مدل OverheadItem فیلد name ندارد، این order_by را با فیلد صحیح عوض کن
         return OverheadItem.objects.filter(is_active=True).order_by("name")
 
     def _selected_overhead_ids(req) -> set[int]:
@@ -1085,6 +1120,8 @@ def price_form_view(request) -> Any:
             "pq_bottom_layer":  src.pq_bottom_layer_id,
             # «درب باز پایین»
             "open_bottom_door": getattr(src, "E18_lip", None),
+            # کمک به فیلتر عرض ورق در فرم (اگر فرم از initial استفاده کند)
+            "chosen_sheet_width": getattr(src, "chosen_sheet_width", None),
         }
         for name in FLAG_FIELD_NAMES:
             if hasattr(src, name):
@@ -1161,8 +1198,9 @@ def price_form_view(request) -> Any:
         if lock_initial:
             initial.update(lock_initial)
 
-        form = _build_form(request=request, initial=initial, stage="s1")
-        _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
+        # ← فرم با customer ساخته می‌شود تا QuerySetها در __init__ درست باشند
+        form = _build_form_safe(request=request, initial=initial, stage="s1")
+        _fill_last_order_context(lock_initial.get("customer") if lock_initial else (int(customer_id) if customer_id else None))
 
         ctx.update({
             "form": form,
@@ -1181,7 +1219,8 @@ def price_form_view(request) -> Any:
     stage_vals = request.POST.getlist("stage")
     stage = (stage_vals[-1] if stage_vals else (request.POST.get("stage") or "s1")).strip().lower()
 
-    form = _build_form(request=request, initial=lock_initial, stage=stage)
+    # ← فرم بایندشده با customer
+    form = _build_form_safe(request=request, initial=lock_initial, stage=stage)
     ctx.update({
         "form": form,
         "locked_customer": getattr(form, "display_customer", None),
@@ -1196,7 +1235,7 @@ def price_form_view(request) -> Any:
     if not form.is_valid():
         print(">>> form.errors =", dict(form.errors))
         logger.warning("price_form_view invalid form: %s", dict(form.errors))
-        _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
+        _fill_last_order_context(lock_initial.get("customer") if lock_initial else (int(customer_id) if customer_id else None))
         ctx["errors"] = form.errors
         return render(request, "carton_pricing/price_form.html", ctx)
 
@@ -1298,7 +1337,7 @@ def price_form_view(request) -> Any:
             pass
     ctx["default_sheet_choice_str"] = None if default_sheet_choice is None else f"{default_sheet_choice:.2f}"
 
-    _fill_last_order_context(lock_initial.get("customer") if lock_initial else None)
+    _fill_last_order_context(lock_initial.get("customer") if lock_initial else (int(customer_id) if customer_id else None))
 
     # 6) نمایش مرحله ۱
     if stage != "final":
@@ -1404,6 +1443,7 @@ def price_form_view(request) -> Any:
 
     def _profit_amount(base_amount: Decimal) -> Decimal:
         total = Decimal("0.00")
+        # توجه: اگر OverheadItem فیلد name ندارد، name__icontains را با فیلد درست عوض کن
         for it in OverheadItem.objects.filter(is_active=True, name__icontains=PROFIT_KW):
             rate = Decimal(str(getattr(it, "unit_cost", 0) or 0))
             total += (base_amount * rate / Decimal("100"))

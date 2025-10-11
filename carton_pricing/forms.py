@@ -241,15 +241,43 @@ from .models import (
     Customer,
 )
 
+# forms.py
+from typing import Optional
+from decimal import Decimal
 from django import forms
 from django.core.exceptions import ValidationError
-from typing import Optional
-from .models import PriceQuotation, Paper, Customer
 from django.db import models as dj_models
 
+from .models import PriceQuotation, Paper,  Customer  # اسم‌ها را با مدل‌های خودت هماهنگ کن
+
+
+# اگر در مدل پرچم‌ها را به‌صورت فیلد نگه می‌داری:
+FLAG_FIELD_NAMES = [
+    "flag_customer_dims",
+    "flag_customer_sample",
+    "flag_sample_dims",
+    "flag_new_cliche",
+    "flag_staple",
+    "flag_handle_slot",
+    "flag_punch",
+    "flag_pallet_wrap",
+    "flag_shipping_not_seller",
+]
+
+# --- PriceForm (rewrite) ------------------------------------------------------
+# نکته: فرض شده imports بالای فایل موجودند؛ اگر نبودند این‌ها را اضافه کن:
+# from typing import Optional
+# from decimal import Decimal
+# from django import forms
+# from django.core.exceptions import ValidationError
+# from django.db import models as dj_models
+# from .models import PriceQuotation, Paper, Customer
+# from .utils import NormalizeDigitsModelForm
+# FLAG_FIELD_NAMES = [...]   # همان آرایه‌ی پرچم‌ها در پروژه‌ی خودت
+
 class PriceForm(NormalizeDigitsModelForm):
-    # کنترل‌های عمومی فرم
-    save_record = forms.BooleanField(required=False, initial=False, label="ذخیرهٔ برگه قیمت بعد از محاسبه؟")
+    # کنترل‌های عمومی
+    save_record          = forms.BooleanField(required=False, initial=False, label="ذخیرهٔ برگه قیمت بعد از محاسبه؟")
     has_print_notes_bool = forms.BooleanField(required=False, initial=False, label="چاپ و نکات تبدیل")
 
     # فقط-فرم
@@ -259,15 +287,15 @@ class PriceForm(NormalizeDigitsModelForm):
         widget=forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "id": "id_open_bottom_door"}),
     )
 
-    # ───── تغییر مهم: نوع کارتن به صورت Select با choices مدل ─────
+    # نوع کارتن از choices مدل
     carton_type = forms.ChoiceField(
         label="نوع کارتن",
-        required=False,  # اگر می‌خواهید اجباری باشد، False را بردارید و در مدل هم default بگذارید
+        required=False,
         choices=PriceQuotation.CARTON_TYPE_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
     )
 
-    # چک‌باکس‌های «موارد انتخابی»
+    # چک‌باکس‌ها
     flag_customer_dims       = forms.BooleanField(required=False, label="ابعاد مشتری")
     flag_customer_sample     = forms.BooleanField(required=False, label="نمونه مشتری")
     flag_sample_dims         = forms.BooleanField(required=False, label="ابعاد نمونه")
@@ -292,9 +320,9 @@ class PriceForm(NormalizeDigitsModelForm):
             "I8_qty",
             "A1_layers", "A2_pieces", "A3_door_type", "A4_door_count",
             "E15_len", "G15_wid", "I15_hgt",
-            "E17_lip", "D31_flute",  # ← payment_type عمداً حذف شد
+            "E17_lip", "D31_flute",
             "E46_round_adjust",
-            # کاغذها
+            # کاغذها / ماشین
             "pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer",
         ]
         widgets = {
@@ -302,7 +330,6 @@ class PriceForm(NormalizeDigitsModelForm):
             "contact_phone": forms.HiddenInput(),
             "prepared_by": forms.TextInput(attrs={"class": "form-control"}),
             "product_code": forms.TextInput(attrs={"class": "form-control", "dir": "ltr"}),
-            # "carton_type":  ← قبلاً TextInput بود؛ حذف شد تا همان ChoiceField/Select استفاده شود
             "carton_name": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "I8_qty": forms.NumberInput(attrs={"class": "form-control", "min": 1}),
@@ -323,78 +350,134 @@ class PriceForm(NormalizeDigitsModelForm):
             "pq_bottom_layer": forms.Select(attrs={"class": "form-select"}),
         }
 
+    # --- کمک‌تابع: نگاشت نام فیلدها اگر در پروژه pq_as_* باشد ---
+    def _resolve_field_name(self, *candidates: str) -> Optional[str]:
+        for name in candidates:
+            if name in self.fields:
+                return name
+        return None
+
     # ---------- init ----------
     def __init__(self, *args, **kwargs):
+        # می‌توانی customer را از ویو بدهی تا فیلتر سفارشی اعمال شود
+        self._customer = kwargs.pop("customer", None)
         super().__init__(*args, **kwargs)
-        for fld in ("pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer"):
-            if fld in self.fields:
-                self.fields[fld].required = False
-                self.fields[fld].empty_label = "---------"
-        # اگر به هر دلیل payment_type هنوز در فرم بود، اختیاری و سپس حذفش کن
+
+        # اگر احیاناً payment_type در فرم آمده اما نمی‌خواهی نمایش دهی
         if "payment_type" in self.fields:
             self.fields["payment_type"].required = False
             self.fields.pop("payment_type", None)
 
-        # پایهٔ کوئری‌ست
-        from django.db.models import F
-        qs = Paper.objects.all()
+        # همه Selectهای کاغذ/ماشین اختیاری و با empty_label
+        for fld in (
+            "pq_glue_machine", "pq_be_flute", "pq_middle_layer",
+            "pq_c_flute", "pq_bottom_layer",
+            "pq_as_glue_machine", "pq_as_be_flute", "pq_as_middle_layer",
+            "pq_as_c_flute", "pq_as_bottom_layer",
+        ):
+            if fld in self.fields:
+                self.fields[fld].required = False
+                try:
+                    self.fields[fld].empty_label = "---------"
+                except Exception:
+                    pass
 
-        # حداقل عرض از انتخاب «عرض ورق» (sheet_choice/M24) اگر وجود دارد
-        min_width_cm = None
-        try:
-            from decimal import Decimal as _D
-            raw_candidates = []
-            if hasattr(self, "data"):
-                raw_candidates.append(self.data.get("sheet_choice"))
-            if hasattr(self, "initial"):
-                raw_candidates.extend([
-                    self.initial.get("sheet_choice"),
-                    self.initial.get("chosen_sheet_width"),
-                    self.initial.get("M24"),
-                ])
-            for raw in raw_candidates:
-                if raw not in (None, "", "-"):
-                    try:
-                        min_width_cm = _D(str(raw))
-                        break
-                    except Exception:
-                        pass
-        except Exception:
-            min_width_cm = None
+        # پایهٔ QuerySet برای Paper
+        paper_qs = Paper.objects.all()
 
-        if min_width_cm is not None:
-            qs = qs.filter(width_cm__gte=min_width_cm)
+        # حداقل عرض بر اساس انتخاب کاربر (sheet choice) در GET/POST/initial
+        chosen_width: Optional[Decimal] = None
+        for raw in (
+            (self.data or {}).get("sheet_choice"),
+            (self.data or {}).get("chosen_sheet_width"),
+            (self.initial or {}).get("sheet_choice"),
+            (self.initial or {}).get("chosen_sheet_width"),
+            (self.initial or {}).get("M24"),
+        ):
+            if raw not in (None, "", "-"):
+                try:
+                    chosen_width = Decimal(str(raw))
+                    break
+                except Exception:
+                    continue
 
-        qs = qs.order_by(F("width_cm").asc(nulls_last=True), "name_paper")
+        if chosen_width is not None:
+            paper_qs = paper_qs.filter(width_cm__gte=chosen_width)
 
+        # ترتیب: ابتدا عرض، سپس نام کاغذ (name_paper)  ← مهم: به‌جای 'name'
+        paper_qs = paper_qs.order_by(dj_models.F("width_cm").asc(nulls_last=True), "name_paper")
+
+        # برچسب نمایشی برای هر گزینه
         def _paper_label(p: Paper) -> str:
-            w = f"{p.width_cm:.0f}" if p.width_cm is not None else "—"
+            w = f"{int(p.width_cm)}" if p.width_cm is not None else "—"
             return f"{w} cm — {p.name_paper}"
 
-        for fld in ("pq_glue_machine", "pq_be_flute", "pq_middle_layer", "pq_c_flute", "pq_bottom_layer"):
-            if fld in self.fields:
-                self.fields[fld].queryset = qs
-                if hasattr(self.fields[fld], "label_from_instance"):
-                    self.fields[fld].label_from_instance = _paper_label  # type: ignore[attr-defined]
+        # اگر نیاز به فیلتر گروه داری، اینجا اعمال کن (به‌جای name از group__name استفاده می‌کنیم)
+        be_qs      = paper_qs.filter(group__name__in=["B Flute", "E Flute"])
+        cflute_qs  = paper_qs.filter(group__name="C Flute")
+        mid_qs     = paper_qs.filter(group__name__in=["Middle", "Inner"])
+        bottom_qs  = paper_qs.filter(group__name__in=["Bottom", "Liner"])
 
+        # -------- Glue machine queryset (ایمن در نبود مدل) --------
+        glue_field = self._resolve_field_name("pq_glue_machine", "pq_as_glue_machine")
+        if glue_field:
+            # سعی برای ایمپورت GlueMachine؛ اگر نبود، صرفاً از choices خود فیلد استفاده شود
+            GM = None
+            try:
+                from .models import GlueMachine as _GM  # اگر هست
+                GM = _GM
+            except Exception:
+                GM = None
+
+            # فقط اگر فیلد واقعاً ModelChoiceField است و مدل داریم، queryset ست کن
+            if GM and hasattr(self.fields[glue_field], "queryset"):
+                try:
+                    # اگر فیلد name در GlueMachine نیست، با id مرتب کن
+                    order_field = "name" if any(f.name == "name" for f in GM._meta.get_fields()) else "id"
+                    self.fields[glue_field].queryset = GM.objects.all().order_by(order_field)
+                    try:
+                        self.fields[glue_field].empty_label = "---------"
+                    except Exception:
+                        pass
+                except Exception:
+                    # اگر مشکلی پیش آمد، دست‌کم فیلد را خراب نکن
+                    pass
+            # اگر ChoiceField/CharField است، عمداً کاری نکن (choices از مدل/ویجت می‌آید)
+
+        # -------- ست کردن queryset برای فیلدهای کاغذ --------
+        mapping = {
+            self._resolve_field_name("pq_be_flute", "pq_as_be_flute"): be_qs,
+            self._resolve_field_name("pq_middle_layer", "pq_as_middle_layer"): mid_qs,
+            self._resolve_field_name("pq_c_flute", "pq_as_c_flute"): cflute_qs,
+            self._resolve_field_name("pq_bottom_layer", "pq_as_bottom_layer"): bottom_qs,
+        }
+        for fname, qs in mapping.items():
+            if fname and fname in self.fields and hasattr(self.fields[fname], "queryset"):
+                self.fields[fname].queryset = qs
+                try:
+                    self.fields[fname].label_from_instance = _paper_label  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+        # فیلدهای عددی اختیاری
         for fld in ("E17_lip", "open_bottom_door", "E46_round_adjust"):
             if fld in self.fields:
                 self.fields[fld].required = False
 
-        # مقدار اولیه‌ی چک‌باکس چاپ
+        # مقدار اولیه‌ی چاپ
         if self.instance and hasattr(self.instance, "has_print_notes"):
             v = getattr(self.instance, "has_print_notes")
             self.initial["has_print_notes_bool"] = str(v).lower() in {"y", "yes", "true", "1"}
 
-        # مقدار اولیهٔ سایر چک‌باکس‌ها
+        # مقدار اولیه‌ی پرچم‌ها
         for name in FLAG_FIELD_NAMES:
             if self.instance and hasattr(self.instance, name):
                 v = getattr(self.instance, name)
                 self.initial[name] = str(v).lower() in {"y", "yes", "true", "1"}
 
-        # آماده‌سازی نمایش مشتری/تلفن
-        cust_id = self.initial.get("customer") or getattr(self.instance, "customer_id", None)
-        phone   = self.initial.get("contact_phone") or getattr(self.instance, "contact_phone", "")
+        # نمایش مشتری/تلفن
+        cust_id = (self.initial or {}).get("customer") or getattr(self.instance, "customer_id", None)
+        phone   = (self.initial or {}).get("contact_phone") or getattr(self.instance, "contact_phone", "")
         if cust_id:
             try:
                 cust = Customer.objects.only("first_name", "last_name", "organization").get(pk=cust_id)
@@ -443,7 +526,7 @@ class PriceForm(NormalizeDigitsModelForm):
             except Exception:
                 obj.has_print_notes = "yes" if v else "no"
 
-        # نگاشت چک‌باکس‌ها
+        # نگاشت پرچم‌ها
         for name in FLAG_FIELD_NAMES:
             if hasattr(obj, name):
                 v = bool(self.cleaned_data.get(name, False))
@@ -456,7 +539,7 @@ class PriceForm(NormalizeDigitsModelForm):
                 except Exception:
                     setattr(obj, name, "yes" if v else "no")
 
-        # تحمیل قفل سروری برای مشتری و تلفن
+        # تحمیل مشتری/تلفن از initial (تا از POST دستکاری نشود)
         if "customer" in self.initial:
             obj.customer_id = self.initial["customer"]
         if "contact_phone" in self.initial:
@@ -466,6 +549,7 @@ class PriceForm(NormalizeDigitsModelForm):
             obj.save()
             self.save_m2m()
         return obj
+# -------------------------------------------------------------------------------
 
 class GroupPriceUpdateForm(forms.Form):
     """
