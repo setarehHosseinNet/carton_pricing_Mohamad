@@ -1,0 +1,30 @@
+* [33mbea7665[m[33m ([m[1;31morigin/feature/overhead-ui-toggle[m[33m, [m[1;32mrelease/v0.5.0[m[33m, [m[1;32mfeature/overhead-ui-toggle[m[33m)[m chore(release): freeze deps + schema snapshot for v0.5.0
+* [33m5b43a7f[m[33m ([m[1;32mupdate-requirements-auto[m[33m)[m chore: snapshot قبل از برنچ انتشار
+* [33m896280a[m[33m ([m[1;31morigin/update-requirements-auto[m[33m)[m feat(pricing): تکمیل فرم قیمت ۲-مرحله‌ای + سربار m²/برگه + اتصال شماره فاکتور راهکاران
+* [33m2c26bc8[m feat: پیش‌پر کردن مشتری/تلفن، ذخیره شماره راهکاران، و رفع خطای گزینه‌های کاغذ
+* [33m0315fd6[m fix(form): keep previously-selected papers in queryset (union) to prevent "invalid choice" on POST
+* [33m9f6dde1[m fix(form): include previous paper selections in queryset to prevent invalid choice errors
+* [33m56f5c58[m fix(price-form): keep ModelChoiceField querysets on POST + rename 'name' → 'name_paper' and 'group__name'
+* [33m8feac70[m Error Build Form Loader calc
+* [33m9b6706f[m The spreadsheet calculation button and the calculation button do not work.
+* [33m11a4d2d[m Fix service error
+* [33mda6c3b3[m Fix service error
+* [33me0c8df9[m Fix service error
+* [33m7c791b8[m Logical test Errore
+* [33m20aa812[m Logical test Errore
+* [33m8949595[m Logical test
+* [33m1bcf849[m Logical test
+* [33m698006e[m Changes in the calculation result section and removal of formula reading from the formula model and creation of a hard-coded formula method
+* [33m9434513[m Changes in the calculation result section and removal of formula reading from the formula model and creation of a hard-coded formula method
+* [33m48772fd[m Slag cost price calculations
+* [33mf0908c0[m Slag cost price calculations
+* [33m488cb93[m Corrections related to paper width and composition selection
+* [33ma45c8f5[m[33m ([m[1;31morigin/paper-list-search-sorting[m[33m, [m[1;32mpaper-list-search-sorting[m[33m)[m Update requirements-dev.txt and requirements.in
+* [33m2f7f8ae[m[33m ([m[1;31morigin/main[m[33m)[m Changes on the paper list page with search and sorting
+* [33md8919b2[m ایجاد ردیف قیمت
+* [33m873a92f[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/diecut-carton[m[33m, [m[1;33mtag: [m[1;33mV0.5.0[m[33m, [m[1;31morigin/master[m[33m, [m[1;31morigin/feature/diecut-carton[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmaster[m[33m)[m طراحی و صفحه بندی سفارش مشتری بصورت بهینه - موضوعات حل نشده گام فلوت و نوع درب برای درب پایین که باید در مدل ثبت بشود
+* [33m00e7b0b[m طراحی و صفحه بندی سفارش مشتری بصورت بهینه - موضوعات حل نشده گام فلوت و نوع درب برای درب پایین که باید در مدل ثبت بشود
+* [33m7937da3[m قیمت گذاری
+* [33m3ba9dcb[m مشکل فرمول ها حل شد و کلاس های مجزا ساخت شد
+* [33m4570945[m فرمول ها درست محاسبه نمیشن
+* [33m86181ce[m اضافه کردن گروه بندی برای کاغذ ها
