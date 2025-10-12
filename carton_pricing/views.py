@@ -877,13 +877,7 @@ try:
 except Exception:
     jdatetime = None
 
-from django.apps import apps
-from types import SimpleNamespace
-from types import SimpleNamespace
-from django.apps import apps
 
-# views.py
-import math
 import logging
 
 
@@ -893,20 +887,6 @@ logger = logging.getLogger(__name__)
 # تغییرات از اینجا
 
 
-import math
-from types import SimpleNamespace
-from decimal import Decimal
-from typing import Any, Dict, Optional
-
-from django.contrib import messages
-from django.db import transaction
-from django.shortcuts import render
-from django.utils import timezone
-
-from .forms import PriceForm
-from .models import PriceQuotation, OverheadItem, ExtraCharge, Paper
-from .services.area import CompositionAreaCalculator
-from .services.utils import as_num, as_num_or_none, q2  # فرض بر این است موجودند
 from .services.env import SettingsLoader
      # همان Loader خودت
 
@@ -1034,96 +1014,68 @@ def price_form_view(request) -> Any:
     logger.info("price_form_view start: method=%s path=%s", request.method, request.path)
 
     # ---------- تنظیمات + کانتکست پایه ----------
+    # بارگذاری آخرین تنظیمات و ساخت کانتکست اولیه‌ی قالب
     bs = SettingsLoader.load_latest()
     ctx: Dict[str, Any] = {"settings": bs}
+    # اگر از روی یک سفارش (برگه قیمت) دیگر کپی می‌کنیم آیدی آن در copy_from می‌آید
     copy_from = (request.GET.get("copy_from") or request.POST.get("copy_from") or "").strip()
+    # کلیدواژه‌ای که آیتم‌های سربارِ سود را با آن تشخیص می‌دهیم
     PROFIT_KW = "سود فاکتور"
 
     # ---------- هلسپرهای مشتری ----------
     def _get_customer_from_request(req):
+        """مشتری را از ?customer=<id> یا POST['customer'] می‌آورد (ایمن)."""
         cid = req.GET.get("customer") or req.POST.get("customer")
         if not cid:
             return None
         try:
-            cust = Customer.objects.get(pk=int(cid))  # بدون only → مقاوم
-            print("DBG customer param=", cid, "found:", bool(cust))
-            return cust
-        except Exception as e:
-            print("DBG customer fetch failed:", e)
-            return None
-
-    def _get_customer_from_request(req):
-        """مشتری را از ?customer=<id> یا POST['customer'] می‌آورد (ایمن و بدون only)."""
-        cid = req.GET.get("customer") or req.POST.get("customer")
-        if not cid:
-            return None
-        try:
-            cust = Customer.objects.get(pk=int(cid))
-            # دیباگ اختیاری:
-            # print("DBG customer:", cust.pk, str(cust))
-            return cust
+            return Customer.objects.get(pk=int(cid))
         except Exception:
             return None
 
     def _get_customer_phone(cust) -> str:
-        """
-        تلفن مشتری را برگردان:
-        1) ابتدا میان فیلدهای رایج (contact_phone/phone/mobile/...) جست‌وجو می‌کند.
-        2) اگر نبود، به‌صورت داینامیک هر فیلدی که نامش شامل phone/tel/«تلفن/موب» است را چک می‌کند.
-        3) اگر باز هم نبود، از آخرین سفارش همان مشتری تلفن را برمی‌دارد.
-        """
+        """اول از فیلدهای رایج، بعد جست‌وجوی داینامیک، بعد آخرین سفارش مشتری."""
         if not cust:
             return ""
-
-        # 1) فیلدهای رایج به‌ترتیب ترجیح
-        common_fields = (
-            "contact_phone", "phone", "mobile", "cell", "cellphone",
-            "telephone", "tel", "phone_number", "mobile_number"
-        )
-        for fld in common_fields:
+        # 1) فیلدهای رایج شماره تماس
+        for fld in ("contact_phone", "phone", "mobile", "cell", "cellphone",
+                    "telephone", "tel", "phone_number", "mobile_number"):
             if hasattr(cust, fld):
                 v = getattr(cust, fld) or ""
                 if isinstance(v, str) and v.strip():
                     return v.strip()
-
-        # 2) جست‌وجوی داینامیک روی تمام اتربیوت‌های مدل (برای نام‌های سفارشی/فارسی)
+        # 2) جست‌وجوی داینامیک روی اتربیوت‌ها برای نام‌های سفارشی/فارسی
         try:
             for name, val in vars(cust).items():
-                # فقط رشته‌ها مهم‌اند
-                if not isinstance(val, str):
-                    continue
-                lname = str(name).lower()
-                if ("phone" in lname) or ("tel" in lname) or ("تلفن" in name) or ("موب" in name):
-                    if val.strip():
-                        return val.strip()
+                if isinstance(val, str):
+                    lname = str(name).lower()
+                    if ("phone" in lname) or ("tel" in lname) or ("تلفن" in name) or ("موب" in name):
+                        if val.strip():
+                            return val.strip()
         except Exception:
             pass
-
-        # 3) fallback: از آخرین سفارش همین مشتری
+        # 3) اگر هیچ‌کدام نبود از آخرین سفارش مشتری بردار
         try:
             last = (PriceQuotation.objects
                     .filter(customer_id=cust.id)
-                    .exclude(contact_phone__isnull=True)
-                    .exclude(contact_phone__exact="")
-                    .order_by("-id")
-                    .first())
+                    .exclude(contact_phone__isnull=True, contact_phone__exact="")
+                    .order_by("-id").first())
             if last and last.contact_phone:
                 return str(last.contact_phone).strip()
         except Exception:
             pass
-
         return ""
 
-    # --- استفاده ---
+    # مشتری انتخاب‌شده در URL/POST (برای پیش‌فرض‌گذاری فرم و نمایش)
     req_customer = _get_customer_from_request(request)
 
     # ---------- سازندهٔ امن فرم ----------
     def _build_form_safe(*, request, initial=None, stage="s1"):
         """
-        تلاش می‌کند از _build_form پروژه استفاده کند؛ اگر signature آن پارامتر customer را نپذیرفت
-        یا اصلاً موجود نبود، مستقیم PriceForm را می‌سازد.
+        تلاش می‌کند از سازنده‌ی اختصاصی پروژه (_build_form) استفاده کند؛
+        اگر امضا (signature) با پارامتر customer سازگار نبود یا در دسترس نبود،
+        مستقیماً PriceForm را می‌سازد. این کار، انعطاف سازگاری به تغییرات پروژه می‌دهد.
         """
-        # به فرم، خود آبجکت مشتری را هم پاس بده تا __init__ بتواند فیلتر کند
         try:
             return _build_form(request=request, initial=initial, stage=stage, customer=req_customer)
         except TypeError:
@@ -1133,18 +1085,21 @@ def price_form_view(request) -> Any:
                 pass
         except NameError:
             pass
+        # ساخت مستقیم فرم (Bind در POST / Unbound در GET)
+        return PriceForm(request.POST or None, request.FILES or None,
+                         initial=initial, customer=req_customer)
 
-        if request.method == "POST":
-            return PriceForm(request.POST, request.FILES, initial=initial, customer=req_customer)
-        return PriceForm(initial=initial, customer=req_customer)
-
+    # یوتیلیتی: تبدیل مقدار truthy
     def _truthy(v: Any) -> bool:
         return str(v).strip().lower() in {"1", "true", "t", "y", "yes", "on"}
 
+    # کوئری‌ست آیتم‌های سربار فعال
     def _overheads_qs():
         return OverheadItem.objects.filter(is_active=True).order_by("name")
 
+    # استخراج شناسه‌های آیتم‌های سربار انتخاب‌شده از POST (نام‌های oh_<id>)
     def _selected_overhead_ids(req) -> set[int]:
+        """oh_<id>=on ⇒ id ها"""
         out: set[int] = set()
         for k in req.POST.keys():
             if k.startswith("oh_"):
@@ -1154,6 +1109,23 @@ def price_form_view(request) -> Any:
                     pass
         return out
 
+    # نگاشت تعداد/جعبه برای آیتم‌های مبنای «برگه» از POST (نام‌های ohq_<id>)
+    def _selected_overhead_qty_map(req) -> dict[int, int]:
+        """ohq_<id>=N ⇒ {id: N} (فقط اعداد معتبرِ ≥۱)"""
+        out: dict[int, int] = {}
+        for k, v in req.POST.items():
+            if not k.startswith("ohq_"):
+                continue
+            try:
+                iid = int(k.split("_", 1)[1])
+                q = int(str(v or "0").strip() or "0")
+                if q >= 1:
+                    out[iid] = q
+            except Exception:
+                continue
+        return out
+
+    # ساخت initial از روی سفارشِ منبع (copy_from)
     def _initial_from_order(src: PriceQuotation) -> dict:
         data = {
             "customer":        src.customer_id,
@@ -1182,22 +1154,26 @@ def price_form_view(request) -> Any:
             "pq_middle_layer":  src.pq_middle_layer_id,
             "pq_c_flute":       src.pq_c_flute_id,
             "pq_bottom_layer":  src.pq_bottom_layer_id,
-            # «درب باز پایین»
+            # «درب باز پایین» (در مدل ممکن است با نام E18_lip ذخیره شود)
             "open_bottom_door": getattr(src, "E18_lip", None),
-            # کمک به فیلتر عرض ورق در فرم
+            # برای فیلتر عرض ورق در فرم
             "chosen_sheet_width": getattr(src, "chosen_sheet_width", None),
         }
+        # پرچم‌ها (ممکن است بولین/متنی باشند)
         for name in FLAG_FIELD_NAMES:
             if hasattr(src, name):
                 data[name] = _truthy(getattr(src, name))
+        # چک‌باکس «چاپ و نکات تبدیل»
         if hasattr(src, "has_print_notes"):
             data["has_print_notes_bool"] = _truthy(getattr(src, "has_print_notes"))
         return data
 
+    # تعیین نحوه تسویه (نقد/نسیه)
     def _settlement_from_post() -> str:
         pay = (request.POST.get("settlement") or request.POST.get("payment_type") or "cash").strip().lower()
         return "credit" if pay == "credit" else "cash"
 
+    # استخراج مقادیر اصلی ورودی کاربر برای محاسبات (A1..A4, E15,G15,I15, ...)
     def _seed_vars(cd: dict) -> dict[str, Any]:
         v: dict[str, Any] = {
             "A1": int(cd.get("A1_layers") or 0),
@@ -1211,6 +1187,7 @@ def price_form_view(request) -> Any:
             "E46": as_num(cd.get("E46_round_adjust"), 0.0),
             "E17": as_num(cd.get("E17_lip"), 0.0),
         }
+        # کد A6 با کنار هم گذاشتن A1..A4
         a6_str = f'{v["A1"]}{v["A2"]}{v["A3"]}{v["A4"]}'
         v["A6"] = int(a6_str) if a6_str.isdigit() else 0
         ctx["a6"] = a6_str
@@ -1219,18 +1196,19 @@ def price_form_view(request) -> Any:
     # ---------- قفل از سفارش/مشتری ----------
     lock_initial: dict | None = None
     src_order: Optional[PriceQuotation] = None
+    # اگر از روی سفارش قبلی کپی می‌کنیم
     if copy_from.isdigit():
         src_order = PriceQuotation.objects.filter(pk=int(copy_from)).first()
         if src_order:
             lock_initial = {"customer": src_order.customer_id, "contact_phone": src_order.contact_phone}
-
-    # اگر کپی از سفارش نداریم ولی customer داریم → قفل از مشتری
+    # در غیر این صورت اگر مشتری از URL آمده، همان را قفل کن
     if not lock_initial and req_customer:
         lock_initial = {
             "customer": req_customer.id,
             "contact_phone": _get_customer_phone(req_customer),
         }
 
+    # پر کردن اطلاعات سفارش قبلی (برای نمایش در کارت بالای فرم)
     def _fill_last_order_context(customer_id: Optional[int]):
         ctx["today_jalali"] = _today_jalali()
         ctx["last_order_date_jalali"] = "—"
@@ -1257,6 +1235,7 @@ def price_form_view(request) -> Any:
 
     # ---------- 1) GET ----------
     if request.method != "POST":
+        # مقادیر اولیه‌ی پیش‌فرض فرم
         initial: dict = {
             "A1_layers": 1, "A2_pieces": 1, "A3_door_type": 1, "A4_door_count": 1,
             "payment_type": "cash",
@@ -1264,14 +1243,22 @@ def price_form_view(request) -> Any:
             "tech_shipping_on_customer": False,
             "open_bottom_door": None,
         }
+        # اگر از روی سفارش دیگر کپی می‌کنیم، initial را آن‌جا تنظیم کن
         if src_order:
             initial.update(_initial_from_order(src_order))
+        # اگر قفل از مشتری داریم، اعمال کن
         if lock_initial:
             initial.update(lock_initial)
 
+        # ساخت فرم مرحله‌ی اول
         form = _build_form_safe(request=request, initial=initial, stage="s1")
         _fill_last_order_context((lock_initial or {}).get("customer"))
+        # اگر از سفارش قبلی سربار با تعداد ذخیره بوده، برای نمایش اولیه بخوان
+        qty_map_initial = {}
+        if src_order and getattr(src_order, "overhead_meta", None):
+            qty_map_initial = (src_order.overhead_meta or {}).get("qty", {}) or {}
 
+        # کانتکست برای رندر صفحه
         ctx.update({
             "form": form,
             "ui_stage": "s1",
@@ -1282,14 +1269,19 @@ def price_form_view(request) -> Any:
             "copy_from": copy_from,
             "overheads": _overheads_qs(),
             "overheads_checked": set(),
+            "overhead_qty_map": qty_map_initial,
         })
         return render(request, "carton_pricing/price_form.html", ctx)
 
     # ---------- 2) POST ----------
+    # تشخیص مرحله (s1 یا final)
     stage_vals = request.POST.getlist("stage")
     stage = (stage_vals[-1] if stage_vals else (request.POST.get("stage") or "s1")).strip().lower()
-
+    # نگاشت تعداد/جعبه سربارها
+    qty_map = _selected_overhead_qty_map(request)
+    # ساخت فرم بایندشده
     form = _build_form_safe(request=request, initial=lock_initial, stage=stage)
+    # بروزرسانی کانتکست برای رندر احتمالی با خطا
     ctx.update({
         "form": form,
         "locked_customer": getattr(form, "display_customer", None),
@@ -1297,19 +1289,24 @@ def price_form_view(request) -> Any:
         "copy_from": copy_from,
         "overheads": _overheads_qs(),
         "overheads_checked": _selected_overhead_ids(request),
+        "overhead_qty_map": qty_map,
     })
 
     logger.debug("POST keys: %s", list(request.POST.keys()))
     print(">>> form.is_valid() ?", request.method, form.is_valid())
     if not form.is_valid():
+        # اگر فرم نامعتبر بود همان صفحه با خطاها رندر می‌شود
         print(">>> form.errors =", dict(form.errors))
         logger.warning("price_form_view invalid form: %s", dict(form.errors))
         _fill_last_order_context((lock_initial or {}).get("customer"))
         ctx["errors"] = form.errors
         return render(request, "carton_pricing/price_form.html", ctx)
 
+    # داده‌های تمیز فرم
     cd = form.cleaned_data
+    # آبجکت مدل (بدون save)
     obj: PriceQuotation = form.save(commit=False)
+    # تحمیل مقادیر قفل‌شده‌ی مشتری/تلفن (برای امنیت و یکپارچگی)
     if lock_initial:
         if lock_initial.get("customer"):
             obj.customer_id = lock_initial["customer"]
@@ -1320,9 +1317,9 @@ def price_form_view(request) -> Any:
     settlement = _settlement_from_post()
     ctx["settlement"] = settlement
     ctx["credit_days"] = int(as_num(request.POST.get("credit_days"), 0))
-
     var: Dict[str, Any] = _seed_vars(cd)
     obj.A6_sheet_code = var["A6"]
+    # تزریق تنظیمات سفارشی پروژه به متغیرها/فرم
     try:
         SettingsLoader.inject(bs, settlement, var, cd)
     except Exception:
@@ -1330,6 +1327,7 @@ def price_form_view(request) -> Any:
 
     # ---------- 4) فرمول‌ها ----------
     def compute_E17(tail: int, g15: float, cd: dict) -> float:
+        # فعلاً فقط از فیلد E17_lip می‌خوانیم
         return float(as_num(cd.get("E17_lip"), 0.0))
 
     def compute_I17(E15: float, G15: float) -> float:
@@ -1342,6 +1340,7 @@ def price_form_view(request) -> Any:
         return float(E15 + I15 + 3.5)
 
     def build_rows_for_widths(k15: float, widths: list[float], *, e20_len: float) -> list:
+        """ساخت ردیف‌های جدول انتخاب عرض (محاسبات F24 / I22 / E28 برای هر عرض ثابت)"""
         out = []
         for w in widths:
             try:
@@ -1356,6 +1355,7 @@ def price_form_view(request) -> Any:
         return out
 
     def pick_best_default(rows: list) -> Optional[Any]:
+        """انتخاب بهترین ردیف پیش‌فرض: اول دورریز سبز (0<I22<11) کمینه، بعد کمترین I22 غیرتهی، نهایتاً اولین ردیف."""
         greens = [r for r in rows if (r.I22 is not None and 0 < float(r.I22) < 11)]
         if greens:
             return min(greens, key=lambda r: float(r.I22))
@@ -1382,7 +1382,7 @@ def price_form_view(request) -> Any:
     # ---------- 5) جدول مرحله ۱ ----------
     fixed_widths = (
         getattr(bs, "fixed_widths", None)
-        or getattr(bs, "sheet_fixed_widths_mm", None)
+        # or getattr(bs, "sheet_fixed_widths_mm", None)
         or [80, 90, 100, 110, 120, 125, 140]
     )
     fixed_widths = [float(x) for x in fixed_widths]
@@ -1398,6 +1398,7 @@ def price_form_view(request) -> Any:
         "K20": q2(0.0, "0.01"),
     }
 
+    # اگر کاربر عرض خاصی را انتخاب کرده باشد، آن را به‌عنوان پیش‌فرض نمایش بده
     posted_choice = request.POST.get("sheet_choice")
     if posted_choice and posted_choice.strip():
         try:
@@ -1416,6 +1417,7 @@ def price_form_view(request) -> Any:
         return render(request, "carton_pricing/price_form.html", ctx)
 
     # ---------- 7) مرحله نهایی ----------
+    # پیدا کردن ردیف انتخاب‌شده (عرض ورق) و اعتبارسنجی F24
     w_try = as_num_or_none((request.POST.get("sheet_choice") or "").strip())
     chosen = None
     if w_try is not None:
@@ -1427,6 +1429,7 @@ def price_form_view(request) -> Any:
         ctx.update({"ui_stage": "s1", "show_table": True, "show_papers": False})
         return render(request, "carton_pricing/price_form.html", ctx)
 
+    # اعمال انتخاب‌ها در متغیرها و شیء مدل
     var["M24"] = float(chosen.sheet_width)
     var["sheet_width"] = float(chosen.sheet_width)
     var["F24"] = float(max(1, int(chosen.f24)))
@@ -1437,7 +1440,7 @@ def price_form_view(request) -> Any:
     obj.waste_warning = bool((chosen.I22 is not None) and chosen.I22 >= 11.0)
     obj.note_message = ""
 
-    # K20 و E20
+    # K20 و E20 نهایی
     var["K20"] = float(var["F24"]) * float(var["K15"])
     obj.K20_industrial_wid = q2(var["K20"], "0.01")
 
@@ -1456,13 +1459,12 @@ def price_form_view(request) -> Any:
     total_area_m2 = area_per_sheet_m2 * sheets_count
     var["E38"] = total_area_m2
 
-    logger.debug(
-        "FINAL rows: M24=%s F24=%s I22=%s E28=%s K20=%s I38=%s E38=%s",
-        var["M24"], var["F24"], var["I22"], var["E28"], var["K20"], var["I38"], var["E38"]
-    )
+    logger.debug("FINAL rows: M24=%s F24=%s I22=%s E28=%s K20=%s I38=%s E38=%s",
+                 var["M24"], var["F24"], var["I22"], var["E28"], var["K20"], var["I38"], var["E38"])
     print(">>> FINAL", "M24=", var["M24"], "F24=", var["F24"], "I22=", var["I22"], "E28=", var["E28"], "K20=", var["K20"])
 
     # ---------- 8) هزینه‌ها ----------
+    # کمک‌تابع خواندن قیمت واحد (برای Paper یا شناسه‌اش)
     def _price_from_choice(val) -> Decimal:
         if not val:
             return Decimal("0")
@@ -1474,6 +1476,7 @@ def price_form_view(request) -> Any:
         except Exception:
             return Decimal("0")
 
+    # مجموع قیمت‌های هر m² از ترکیب کاغذ
     fee_per_m2 = (
         _price_from_choice(cd.get("pq_glue_machine")) +
         _price_from_choice(cd.get("pq_be_flute")) +
@@ -1488,28 +1491,70 @@ def price_form_view(request) -> Any:
     except Exception:
         pass
 
-    E38_m2 = Decimal(str(var.get("E38", 0.0)))
-    E41_val = (fee_per_m2 * E38_m2).quantize(Decimal("0.01"))
-    var["E41"] = float(E41_val)
-    obj.E41_sheet_working_cost = E41_val
-
+    # --- سربار با دو مبنا (m² / برگه) ---
     selected_ids = ctx.get("overheads_checked") or set()
-    oh_total_per_m2 = Decimal("0.00")
-    try:
-        agg = OverheadItem.objects.filter(is_active=True, id__in=list(selected_ids)).aggregate(sum_cost=Decimal("0.00"))
-        oh_total_per_m2 = agg.get("sum_cost") or Decimal("0.00")
-    except Exception:
-        for it in OverheadItem.objects.filter(is_active=True, id__in=list(selected_ids)):
-            oh_total_per_m2 += Decimal(str(it.unit_cost or 0))
+    items = list(OverheadItem.objects.filter(is_active=True, id__in=list(selected_ids)))
 
-    E40_val = (oh_total_per_m2 * E38_m2).quantize(Decimal("0.01"))
-    var["E40"] = float(E40_val)
-    obj.E40_overhead_cost = E40_val
+    # اعتبارسنجی: برای مبنای برگه، تعداد در هر جعبه لازم است
+    for it in items:
+        basis = getattr(it, "basis", None)
+        # مجموعه‌ای از مقادیر معادل «برگه» (برای سازگاری با enum/choice/متن)
+        basis_sheet_vals = {"sheet", "per_sheet", "sheets"}
+        try:
+            if hasattr(OverheadItem, "Basis") and hasattr(OverheadItem.Basis, "PER_SHEET"):
+                basis_sheet_vals.add(OverheadItem.Basis.PER_SHEET)  # مقدار enum
+        except Exception:
+            pass
+        if basis in basis_sheet_vals:
+            if int(qty_map.get(it.id, 0)) < 1:
+                # خطای غیرمیدانی برای نمایش بالای فرم
+                form.add_error(None, f"برای «{it.name}» تعداد در هر جعبه را وارد کنید.")
+                ctx["errors"] = form.errors
+                return render(request, "carton_pricing/price_form.html", ctx)
 
-    M40_final = (E41_val + E40_val).quantize(Decimal("0.01"))
+    # محاسبهٔ مبلغ سربار
+    E38_m2 = Decimal(str(var.get("E38", 0.0)))
+    I38_sheets = Decimal(str(var.get("I38", 0)))
+    total_overhead_amount = Decimal("0.00")
+
+    for it in items:
+        unit = Decimal(str(getattr(it, "unit_cost", 0) or 0)).quantize(Decimal("0.01"))
+        basis = getattr(it, "basis", "m2")
+        # تشخیص مبنا: برگه یا مترمربع (سازگار با enum/متن)
+        is_sheet = False
+        try:
+            if hasattr(OverheadItem, "Basis") and hasattr(OverheadItem.Basis, "PER_SHEET"):
+                is_sheet = (basis == OverheadItem.Basis.PER_SHEET)
+        except Exception:
+            pass
+        if isinstance(basis, str):
+            if basis.strip().lower() in {"sheet", "per_sheet", "sheets"}:
+                is_sheet = True
+
+        if is_sheet:
+            # مبنا: برگه → مبلغ = هزینهٔ واحد × تعداد در هر جعبه × تعداد کل برگه‌ها (I38)
+            qty_per_box = Decimal(str(qty_map.get(it.id, 1)))
+            amount = (unit * qty_per_box * I38_sheets).quantize(Decimal("0.01"))
+        else:
+            # مبنا: m² → مبلغ = هزینهٔ واحد × متراژ کل (E38)
+            amount = (unit * E38_m2).quantize(Decimal("0.01"))
+
+        total_overhead_amount += amount
+
+    # هزینه کاری ورق (E41) = فی m² × متراژ کل
+    obj.E41_sheet_working_cost = (fee_per_m2 * E38_m2).quantize(Decimal("0.01"))
+    var["E41"] = float(obj.E41_sheet_working_cost)
+
+    # هزینه سربار نهایی (E40) از مجموع آیتم‌ها
+    obj.E40_overhead_cost = total_overhead_amount
+    var["E40"] = float(total_overhead_amount)
+
+    # مایه کاری کلی (M40)
+    M40_final = (obj.E41_sheet_working_cost + obj.E40_overhead_cost).quantize(Decimal("0.01"))
     var["M40"] = float(M40_final)
     obj.M40_total_cost = M40_final
 
+    # محاسبه سود (M41) از آیتم‌های سود و شارژهای اضافی
     def _profit_amount(base_amount: Decimal) -> Decimal:
         total = Decimal("0.00")
         for it in OverheadItem.objects.filter(is_active=True, name__icontains=PROFIT_KW):
@@ -1527,43 +1572,60 @@ def price_form_view(request) -> Any:
     var["M41"] = float(M41_val)
     obj.M41_profit_amount = M41_val
 
+    # قیمت بدون مالیات (H46) = مایه کاری کلی + سود
     H46_val = (M40_final + M41_val).quantize(Decimal("0.01"))
     var["H46"] = float(H46_val)
     obj.H46_price_before_tax = H46_val
 
+    # مالیات (J48)
     tax_percent = Decimal(str((getattr(bs, "custom_vars", {}) or {}).get("tax_percent", 9)))
     J48_val = (H46_val * tax_percent / Decimal("100")).quantize(Decimal("0.01"))
     var["J48"] = float(J48_val)
     obj.J48_tax = J48_val
 
+    # قیمت با مالیات (E48)
     E48_val = (H46_val + J48_val).quantize(Decimal("0.01"))
     var["E48"] = float(E48_val)
     obj.E48_price_with_tax = E48_val
 
+    # نگاشت خروجی‌ها به فیلدهای مدل برای نمایش
     obj.E38_sheet_area_m2 = q2(var.get("E38", 0.0), "0.0001")
     try:
-        obj.I38_sheet_count = int(sheets_count)
+        obj.I38_sheet_count = int(var.get("I38") or 0)
     except Exception:
         pass
 
     # ---------- 9) ذخیرهٔ اختیاری ----------
-    # 9) ذخیرهٔ اختیاری
     if cd.get("save_record"):
         with transaction.atomic():
+            # مقداردهی E17 اگر خالی بود
             if getattr(obj, "E17_lip", None) in (None, ""):
                 obj.E17_lip = q2(var["E17"], "0.01")
+            # نگاشت «لبِ درب پایین» در صورت وجود فیلد مدل
             try:
                 bot = as_num_or_none(cd.get("open_bottom_door"))
                 if bot is not None and hasattr(obj, "E18_lip"):
                     obj.E18_lip = q2(bot, "0.01")
             except Exception:
                 pass
+
+            # ذخیره انتخاب‌های سربار + تعداد (برای بازنمایش در آینده)
+            try:
+                obj.overhead_meta = {
+                    "ids": list(selected_ids),
+                    "qty": {str(k): int(v) for k, v in (qty_map or {}).items() if int(v) > 0},
+                }
+            except Exception:
+                pass
+
             obj.save()
+
         messages.success(request, "برگه قیمت ذخیره شد.")
-        # ⬇️⬇️ اگر تیک خورده بود، مستقیم برو برای گرفتن شماره راهکاران
+        # اگر تیک ذخیره زده شده بود، پس از ذخیره به صفحهٔ ثبت شماره فاکتور راهکاران برو
         return redirect("carton_pricing:link_rahkaran_invoice", pk=obj.pk)
 
     # ---------- 10) خروجی ----------
+    # آماده‌سازی مقادیر برای نمایش نتیجه‌ی محاسبات
     ctx.update({
         "result": obj,
         "vars": var,
@@ -1578,12 +1640,22 @@ def price_form_view(request) -> Any:
     })
     ctx["default_sheet_choice_str"] = None if default_sheet_choice is None else f"{default_sheet_choice:.2f}"
 
-    logger.info(
-        "render final: H46=%s E48=%s sheets=%s m2=%s",
-        obj.H46_price_before_tax, obj.E48_price_with_tax, var.get("I38"), var.get("E38")
-    )
+    logger.info("render final: H46=%s E48=%s sheets=%s m2=%s",
+                obj.H46_price_before_tax, obj.E48_price_with_tax, var.get("I38"), var.get("E38"))
     return render(request, "carton_pricing/price_form.html", ctx)
 
+def _selected_overhead_qty_map(req) -> dict[int, int]:
+    out = {}
+    for k, v in req.POST.items():
+        if k.startswith("ohq_"):
+            try:
+                oid = int(k.split("_", 1)[1])
+                q = int(v or "1")
+                if q < 1: q = 1
+                out[oid] = q
+            except Exception:
+                pass
+    return out
 
 # carton_pricing/views_paper.py
 
@@ -1641,3 +1713,59 @@ def link_rahkaran_invoice(request, pk: int):
         "quotation": quotation,
         "title": "ثبت شماره فاکتور راهکاران",
     })
+
+
+from django.core.paginator import Paginator
+from django.db.models import Q
+from django.utils.timezone import now
+
+def _rahkaran_base_qs():
+    # اگر نام مدل/فیلدها متفاوت است، اینجا هماهنگ کن
+    return (PriceQuotation.objects
+            .select_related("customer")
+            .order_by("-id"))
+
+def orders_with_rahkaran(request):
+    qs = _rahkaran_base_qs().filter(
+        Q(rahkaran_invoice_no__isnull=False) & ~Q(rahkaran_invoice_no__exact="")
+    )
+
+    # فیلترهای اختیاری
+    customer_id = request.GET.get("customer")
+    if customer_id:
+        qs = qs.filter(customer_id=customer_id)
+
+    paginator = Paginator(qs, 25)
+    page = paginator.get_page(request.GET.get("page"))
+
+    ctx = {
+        "title": "سفارش‌های دارای شماره راهکاران",
+        "mode": "with",
+        "page_obj": page,
+        "paginator": paginator,
+        "now": now(),
+    }
+    return render(request, "carton_pricing/rahkaran_invoice_list.html", ctx)
+
+
+def orders_without_rahkaran(request):
+    qs = _rahkaran_base_qs().filter(
+        Q(rahkaran_invoice_no__isnull=True) | Q(rahkaran_invoice_no__exact="")
+    )
+
+    # فیلترهای اختیاری
+    customer_id = request.GET.get("customer")
+    if customer_id:
+        qs = qs.filter(customer_id=customer_id)
+
+    paginator = Paginator(qs, 25)
+    page = paginator.get_page(request.GET.get("page"))
+
+    ctx = {
+        "title": "سفارش‌های بدون شماره راهکاران",
+        "mode": "without",
+        "page_obj": page,
+        "paginator": paginator,
+        "now": now(),
+    }
+    return render(request, "carton_pricing/rahkaran_invoice_list.html", ctx)

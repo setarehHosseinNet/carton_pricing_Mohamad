@@ -259,7 +259,8 @@ class PriceQuotation(TimeStamped):
     CARTON_NORMAL = "معمولی"
     CARTON_DIECUT = "دایکات"
     CARTON_TRAY = "کفی"
-
+    overhead_meta = models.JSONField(blank=True, null=True, default=dict,
+                                     verbose_name="اطلاعات تکمیلی هزینه‌های سربار")
     CARTON_TYPE_CHOICES = [
         (CARTON_NORMAL, "معمولی"),
         (CARTON_DIECUT, "دایکات"),
@@ -485,6 +486,18 @@ class OverheadItem(models.Model):
         validators=[MinValueValidator(0)],
         help_text="مبلغ به واحد پولی سیستم؛ نمی‌تواند منفی باشد."
     )
+
+    class Basis(models.TextChoices):
+        PER_M2 = "m2", "بر اساس متراژ ورق (E38)"
+        PER_SHEET = "sheet", "بر اساس تعداد ورق (I38)"
+
+    basis = models.CharField(
+        max_length=10,
+        choices=Basis.choices,
+        default=Basis.PER_M2,
+        verbose_name="مبنای محاسبه"
+    )
+
     is_active = models.BooleanField("فعال؟", default=True)
 
     created_at = models.DateTimeField("ایجاد", auto_now_add=True)
@@ -497,3 +510,7 @@ class OverheadItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} — {self.unit_cost}"
+
+    @property
+    def basis_label_short(self) -> str:
+        return "m²" if self.basis == self.Basis.PER_M2 else "برگه"

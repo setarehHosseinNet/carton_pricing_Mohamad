@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">{{ title }}</h4>
+  <div>
+    <a class="btn btn-outline-success btn-sm" href="{% url 'carton_pricing:orders_with_rahkaran' %}">دارای شماره</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'carton_pricing:orders_without_rahkaran' %}">بدون شماره</a>
+  </div>
+</div>
+
+<form method="get" class="row g-2 mb-3">
+  <div class="col-auto">
+    <input name="customer" class="form-control" placeholder="ID مشتری" value="{{ request.GET.customer }}">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-primary">فیلتر</button>
+  </div>
+</form>
+
+<div class="table-responsive">
+  <table class="table table-striped align-middle">
+    <thead>
+      <tr>
+        <th class="text-center">#</th>
+        <th>مشتری</th>
+        <th>کد محصول</th>
+        <th>مبلغ با مالیات</th>
+        <th>شماره راهکاران</th>
+        <th>تاریخ/شناسه</th>
+        <th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for q in page_obj.object_list %}
+      <tr>
+        <td class="text-center">{{ forloop.counter0|add:page_obj.start_index|default:forloop.counter }}</td>
+        <td>{{ q.customer }}</td>
+        <td dir="ltr">{{ q.product_code }}</td>
+        <td>
+          {% if q.E48_price_with_tax %}{{ q.E48_price_with_tax|floatformat:0 }}{% else %}—{% endif %}
+        </td>
+        <td dir="ltr">
+          {% if q.rahkaran_invoice_no %}
+            <span class="badge text-bg-success">{{ q.rahkaran_invoice_no }}</span>
+          {% else %}
+            <span class="badge text-bg-warning">ندارد</span>
+          {% endif %}
+        </td>
+        <td>ID: {{ q.id }}</td>
+        <td>
+          {% if not q.rahkaran_invoice_no %}
+            <a class="btn btn-sm btn-outline-primary"
+               href="{% url 'carton_pricing:link_rahkaran_invoice' q.pk %}">
+              ثبت شماره
+            </a>
+          {% else %}
+            <a class="btn btn-sm btn-outline-secondary"
+               href="{% url 'carton_pricing:link_rahkaran_invoice' q.pk %}">
+              ویرایش
+            </a>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="text-center">موردی یافت نشد.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<nav class="mt-3">
+  <ul class="pagination">
+    {% if page_obj.has_previous %}
+      <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if request.GET.customer %}&customer={{ request.GET.customer }}{% endif %}">قبلی</a></li>
+    {% else %}
+      <li class="page-item disabled"><span class="page-link">قبلی</span></li>
+    {% endif %}
+
+    <li class="page-item disabled"><span class="page-link">صفحه {{ page_obj.number }} از {{ paginator.num_pages }}</span></li>
+
+    {% if page_obj.has_next %}
+      <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}{% if request.GET.customer %}&customer={{ request.GET.customer }}{% endif %}">بعدی</a></li>
+    {% else %}
+      <li class="page-item disabled"><span class="page-link">بعدی</span></li>
+    {% endif %}
+  </ul>
+</nav>
+
+{% endblock %}

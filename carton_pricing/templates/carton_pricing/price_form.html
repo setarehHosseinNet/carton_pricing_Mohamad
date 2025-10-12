@@ -2,6 +2,7 @@
 {% load static %}
 {% load extra_tags %}
 {% load humanize %}
+{% load dict_extras %}
 
 {% block content %}
 <h3 class="mb-3">فرم قیمت</h3>
@@ -63,139 +64,113 @@
   <div class="card mb-3">
     <div class="card-body">
       <div class="row gy-2">
-        <div class="col-md-3">
-          <span class="text-muted">تاریخ آخرین سفارش:</span>
-          <strong>{{ last_order_date_jalali|default:"—" }}</strong>
-        </div>
-        <div class="col-md-3">
-          <span class="text-muted">فیِ آخرین سفارش:</span>
-          <strong>{{ last_order_price|default:0|floatformat:0|intcomma }}</strong>
-        </div>
-        <div class="col-md-3">
-          <span class="text-muted">نرخ آخرین سفارش:</span>
-          <strong>{{ last_order_fee|default:0|floatformat:0|intcomma }}</strong>
-        </div>
-        <div class="col-md-3">
-          <span class="text-muted">تاریخ ثبت سفارش جدید:</span>
-          <strong>{{ today_jalali }}</strong>
-        </div>
+        <div class="col-md-3"><span class="text-muted">تاریخ آخرین سفارش:</span> <strong>{{ last_order_date_jalali|default:"—" }}</strong></div>
+        <div class="col-md-3"><span class="text-muted">فیِ آخرین سفارش:</span>   <strong>{{ last_order_price|default:0|floatformat:0|intcomma }}</strong></div>
+        <div class="col-md-3"><span class="text-muted">نرخ آخرین سفارش:</span>   <strong>{{ last_order_fee|default:0|floatformat:0|intcomma }}</strong></div>
+        <div class="col-md-3"><span class="text-muted">تاریخ ثبت سفارش جدید:</span><strong>{{ today_jalali }}</strong></div>
       </div>
     </div>
   </div>
-
-  {# ───────── کارت: چک‌باکس‌های انتخابی ───────── #}
-{#  <div class="card mb-3">#}
-{#    <div class="card-header">موارد انتخابی</div>#}
-{#    <div class="card-body">#}
-{#      <div class="row row-cols-2 row-cols-md-3 g-2">#}
-{#        <label class="form-check col">{{ form.has_print_notes_bool }} <span class="ms-1">{{ form.has_print_notes_bool.label }}</span></label>#}
-{##}
-{#        <label class="form-check col">{{ form.flag_customer_dims }} <span class="ms-1">ابعاد مشتری</span></label>#}
-{#        <label class="form-check col">{{ form.flag_customer_sample }} <span class="ms-1">نمونه مشتری</span></label>#}
-{#        <label class="form-check col">{{ form.flag_sample_dims }} <span class="ms-1">ابعاد نمونه</span></label>#}
-{##}
-{#        <label class="form-check col">{{ form.flag_new_cliche }} <span class="ms-1">کلیشه جدید</span></label>#}
-{#        <label class="form-check col">{{ form.flag_staple }} <span class="ms-1">منگنه</span></label>#}
-{#        <label class="form-check col">{{ form.flag_handle_slot }} <span class="ms-1">جای دسته</span></label>#}
-{#        <label class="form-check col">{{ form.flag_punch }} <span class="ms-1">پانچ</span></label>#}
-{#        <label class="form-check col">{{ form.flag_pallet_wrap }} <span class="ms-1">پالت‌کشی</span></label>#}
-{#        <label class="form-check col">{{ form.flag_shipping_not_seller }} <span class="ms-1">هزینه حمل بر عهده فروشنده نیست</span></label>#}
-{#      </div>#}
-{#    </div>#}
-{#  </div>#}
 
   {# ───────── مشخصات محصول و تیراژ ───────── #}
   <div class="row g-3">
     <div class="col-md-3">
       <label class="form-label" for="{{ form.product_code.id_for_label }}">{{ form.product_code.label }}</label>
-      {{ form.product_code }}
-      {% for e in form.product_code.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.product_code }} {% for e in form.product_code.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3">
       <label class="form-label" for="{{ form.carton_type.id_for_label }}">{{ form.carton_type.label }}</label>
-      {{ form.carton_type }}
-      {% for e in form.carton_type.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.carton_type }} {% for e in form.carton_type.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3">
       <label class="form-label" for="{{ form.carton_name.id_for_label }}">{{ form.carton_name.label }}</label>
-      {{ form.carton_name }}
-      {% for e in form.carton_name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.carton_name }} {% for e in form.carton_name.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3">
       <label class="form-label" for="{{ form.I8_qty.id_for_label }}">{{ form.I8_qty.label }}</label>
-      {{ form.I8_qty }}
-      {% for e in form.I8_qty.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.I8_qty }} {% for e in form.I8_qty.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
     {# ── A6 ── #}
     <div class="col-md-3">
       <label class="form-label" for="{{ form.A1_layers.id_for_label }}">{{ form.A1_layers.label }}</label>
-      {{ form.A1_layers }}
-      {% for e in form.A1_layers.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.A1_layers }} {% for e in form.A1_layers.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3">
       <label class="form-label" for="{{ form.A2_pieces.id_for_label }}">{{ form.A2_pieces.label }}</label>
-      {{ form.A2_pieces }}
-      {% for e in form.A2_pieces.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.A2_pieces }} {% for e in form.A2_pieces.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3">
       <label class="form-label" for="{{ form.A3_door_type.id_for_label }}">{{ form.A3_door_type.label }}</label>
-      {{ form.A3_door_type }}
-      {% for e in form.A3_door_type.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.A3_door_type }} {% for e in form.A3_door_type.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3">
       <label class="form-label" for="{{ form.A4_door_count.id_for_label }}">{{ form.A4_door_count.label }}</label>
-      {{ form.A4_door_count }}
-      {% for e in form.A4_door_count.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.A4_door_count }} {% for e in form.A4_door_count.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
     {# ── ابعاد ── #}
     <div class="col-md-3">
       <label class="form-label" for="{{ form.E15_len.id_for_label }}">{{ form.E15_len.label }}</label>
-      {{ form.E15_len }}
-      {% for e in form.E15_len.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.E15_len }} {% for e in form.E15_len.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3">
       <label class="form-label" for="{{ form.G15_wid.id_for_label }}">{{ form.G15_wid.label }}</label>
-      {{ form.G15_wid }}
-      {% for e in form.G15_wid.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.G15_wid }} {% for e in form.G15_wid.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3">
       <label class="form-label" for="{{ form.I15_hgt.id_for_label }}">{{ form.I15_hgt.label }}</label>
-      {{ form.I15_hgt }}
-      {% for e in form.I15_hgt.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.I15_hgt }} {% for e in form.I15_hgt.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# ── لب‌ها برای «درب باز» ── #}
+    {# ── لب‌های «درب باز» ── #}
     <div class="col-md-3 open-door-extra d-none" id="field-e17-wrap">
       <label class="form-label" for="{{ form.E17_lip.id_for_label }}">{{ form.E17_lip.label }}</label>
-      {{ form.E17_lip }}
-      {% for e in form.E17_lip.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.E17_lip }} {% for e in form.E17_lip.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
     <div class="col-md-3 open-door-extra d-none" id="field-open-bottom-door">
       <label class="form-label" for="{{ form.open_bottom_door.id_for_label }}">{{ form.open_bottom_door.label }}</label>
-      {{ form.open_bottom_door }}
-      {% for e in form.open_bottom_door.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.open_bottom_door }} {% for e in form.open_bottom_door.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
 
-    {# ── هزینه‌های سربار (اختیاری) ── #}
+    {# ── هزینه‌های سربار (با ورودی تعداد برای مبنای برگه) ── #}
     <div class="col-12">
       <div class="card mt-2">
         <div class="card-header">هزینه‌های سربار (اختیاری)</div>
         <div class="card-body">
-          <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2">
-            {% for oh in overheads %}
-              <label class="form-check col d-flex align-items-center gap-2">
-                <input class="form-check-input"
-                       type="checkbox"
-                       name="oh_{{ oh.id }}"
-                       value="1"
-                       {% if oh.id in overheads_checked %}checked{% endif %}>
-                <span class="ms-1">
-                  {{ oh.name }}
-                  <span class="text-muted small">— {{ oh.unit_cost|default:0|intcomma0 }}</span>
-                </span>
-              </label>
+          <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-2">
+
+
+              {% for oh in overheads %}
+  <label class="col d-inline-flex align-items-center gap-2">
+    <input class="form-check-input oh-check"
+           type="checkbox"
+           name="oh_{{ oh.id }}"
+           value="1"
+           {% if oh.id in overheads_checked %}checked{% endif %}>
+
+    <span>
+      {{ oh.name }}
+      <small class="text-muted">— {{ oh.unit_cost|default:0|floatformat:0|intcomma }}</small>
+      <small class="text-muted">({% if oh.basis == 'sheet' %}برگه{% else %}m²{% endif %})</small>
+    </span>
+
+    {% if oh.basis == 'sheet' %}
+      <input type="number"
+             name="ohq_{{ oh.id }}"
+             min="1" step="1"
+             class="form-control form-control-sm oh-qty"
+             style="width:100px"
+             value="{{ overhead_qty_map|dict_get:oh.id|default:'1' }}"
+             placeholder="تعداد/جعبه"
+             {% if oh.id not in overheads_checked %}disabled{% endif %}>
+      <small class="text-muted">تعداد در هر جعبه</small>
+    {% endif %}
+  </label>
+
+
+
+
             {% empty %}
               <div class="text-muted">هیچ هزینهٔ سرباری ثبت نشده است.</div>
             {% endfor %}
@@ -206,10 +181,7 @@
 
     {# ───────── دکمه محاسبه جدول (مرحله s1) ───────── #}
     <div class="text-end mt-3">
-      <button class="btn btn-outline-primary"
-              type="submit"
-              name="stage" value="s1"
-              formnovalidate>
+      <button class="btn btn-outline-primary" type="submit" name="stage" value="s1" formnovalidate>
         محاسبه جدول
       </button>
     </div>
@@ -249,7 +221,6 @@
                         {% if default_sheet_choice_str and r.sheet_width|floatformat:2 == default_sheet_choice_str %}checked{% endif %}
                       {% endif %}>
                   </td>
-
                   <td>{{ r.sheet_width|floatformat:0 }}</td>
                   <td>{{ r.f24 }}</td>
                   <td class="{% if r.I22 is not None and r.I22 > 0 and r.I22 < 11 %}text-success fw-bold{% elif r.I22 is not None %}text-danger{% else %}text-muted{% endif %}">
@@ -268,8 +239,7 @@
     {# ── گام فلوت ── #}
     <div class="col-md-3">
       <label class="form-label" for="{{ form.D31_flute.id_for_label }}">{{ form.D31_flute.label }}</label>
-      {{ form.D31_flute }}
-      {% for e in form.D31_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+      {{ form.D31_flute }} {% for e in form.D31_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
     </div>
   </div>
 
@@ -279,28 +249,23 @@
     <div class="card-body row g-3">
       <div class="col-md-4" id="wrap-glue">
         <label class="form-label" for="{{ form.pq_glue_machine.id_for_label }}">{{ form.pq_glue_machine.label }}</label>
-        {{ form.pq_glue_machine }}
-        {% for e in form.pq_glue_machine.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+        {{ form.pq_glue_machine }} {% for e in form.pq_glue_machine.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
       <div class="col-md-4" id="wrap-be">
         <label class="form-label" for="{{ form.pq_be_flute.id_for_label }}">{{ form.pq_be_flute.label }}</label>
-        {{ form.pq_be_flute }}
-        {% for e in form.pq_be_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+        {{ form.pq_be_flute }} {% for e in form.pq_be_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
       <div class="col-md-4" id="wrap-mid">
         <label class="form-label" for="{{ form.pq_middle_layer.id_for_label }}">{{ form.pq_middle_layer.label }}</label>
-        {{ form.pq_middle_layer }}
-        {% for e in form.pq_middle_layer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+        {{ form.pq_middle_layer }} {% for e in form.pq_middle_layer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
       <div class="col-md-4" id="wrap-c">
         <label class="form-label" for="{{ form.pq_c_flute.id_for_label }}">{{ form.pq_c_flute.label }}</label>
-        {{ form.pq_c_flute }}
-        {% for e in form.pq_c_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+        {{ form.pq_c_flute }} {% for e in form.pq_c_flute.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
       <div class="col-md-4" id="wrap-bottom">
         <label class="form-label" for="{{ form.pq_bottom_layer.id_for_label }}">{{ form.pq_bottom_layer.label }}</label>
-        {{ form.pq_bottom_layer }}
-        {% for e in form.pq_bottom_layer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+        {{ form.pq_bottom_layer }} {% for e in form.pq_bottom_layer.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
       </div>
     </div>
   </div>
@@ -329,14 +294,14 @@
           <div class="col-md-3"><strong>E38 متراژ ورق (m²):</strong> {{ result.E38_sheet_area_m2 }}</div>
           <div class="col-md-3"><strong>I38 تعداد ورق:</strong> {{ result.I38_sheet_count }}</div>
 
-          <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost|intcomma0 }}</div>
-          <div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost|intcomma0 }}</div>
-          <div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost|intcomma0 }}</div>
-          <div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount|intcomma0 }}</div>
-          <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax|intcomma0 }}</div>
-          <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax|intcomma0 }}</div>
-          <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax|intcomma0 }}</div>
-          <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|intcomma0 }}</div>
+          <div class="col-md-3"><strong>E41 مایه کاری ورق:</strong> {{ result.E41_sheet_working_cost|intcomma }}</div>
+          <div class="col-md-3"><strong>E40 مایه کاری سربار:</strong> {{ result.E40_overhead_cost|intcomma }}</div>
+          <div class="col-md-3"><strong>M40 مایه کاری کلی:</strong> {{ result.M40_total_cost|intcomma }}</div>
+          <div class="col-md-3"><strong>M41 مبلغ سود:</strong> {{ result.M41_profit_amount|intcomma }}</div>
+          <div class="col-md-3"><strong>H46 قیمت بدون مالیات:</strong> {{ result.H46_price_before_tax|intcomma }}</div>
+          <div class="col-md-3"><strong>J48 مالیات:</strong> {{ result.J48_tax|intcomma }}</div>
+          <div class="col-md-3"><strong>E48 قیمت با مالیات:</strong> {{ result.E48_price_with_tax|intcomma }}</div>
+          <div class="col-md-3"><strong>فی ورق (Fee_amount):</strong> {{ fee_amount|default:0|intcomma }}</div>
         </div>
       </div>
     </div>
@@ -356,26 +321,18 @@
 <script>
 (function(){
   "use strict";
-  const form = document.getElementById('priceForm');
-  document.querySelectorAll('button[type="submit"][data-stage]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      console.log('[UI] click submit:', {btnText: btn.textContent.trim(), stage: btn.dataset.stage});
-      const sf = document.getElementById('stageField');
-      if (sf) console.log('[UI] hidden stage before submit:', sf.value);
-    });
-  });
-
-  form?.addEventListener('submit', (e)=>{
-    const fd = new FormData(form);
-    const all = {};
-    for (const [k,v] of fd.entries()) {
-      if (k in all) {
-        if (Array.isArray(all[k])) all[k].push(v); else all[k] = [all[k], v];
-      } else {
-        all[k]=v;
-      }
-    }
-    console.log('[UI] submitting… payload:', all);
+  function syncQty(cb){
+    var id = cb.name.split('_')[1];
+    var qty = document.querySelector('input[name="ohq_'+id+'"]');
+    if(!qty) return;
+    qty.disabled = !cb.checked;
+    if(!cb.checked){ qty.value = ""; } else if(!qty.value){ qty.value = "1"; }
+  }
+  document.querySelectorAll('input.oh-check').forEach(function(cb){
+    // وضعیت اولیه
+    syncQty(cb);
+    // تغییرات بعدی
+    cb.addEventListener('change', function(){ syncQty(cb); });
   });
 })();
 </script>
@@ -384,16 +341,26 @@
 (function () {
   "use strict";
 
-  // درب باز
-  function toggleOpenDoorExtras(show) {
-    document.querySelectorAll('.open-door-extra').forEach(el=>{
-      el.classList.toggle('d-none', !show);
+  // فعال/غیرفعال کردن ورودی تعداد در هر جعبه بر اساس تیک چک‌باکس
+  document.querySelectorAll('input[type="checkbox"][name^="oh_"]').forEach(cb=>{
+    cb.addEventListener('change', function(){
+      const id = this.name.split('_')[1];
+      const qty = document.querySelector('input[name="ohq_'+id+'"]');
+      if(qty){
+        qty.disabled = !this.checked;
+        if(!this.checked) qty.value = '';
+      }
     });
+  });
+
+  // «درب باز»
+  function toggleOpenDoorExtras(show) {
+    document.querySelectorAll('.open-door-extra').forEach(el=>el.classList.toggle('d-none', !show));
     if(!show){
-      const e17 = document.getElementById('id_E17_lip');
-      const obd = document.getElementById('id_open_bottom_door');
-      if(e17) e17.value = '';
-      if(obd) obd.value = '';
+       var e17 = document.getElementById('id_E17_lip');
+      var obd = document.getElementById('id_open_bottom_door');
+      if (e17) e17.value = '';
+      if (obd) obd.value = '';
     }
   }
   function isOpenDoorSelected() {
@@ -405,7 +372,7 @@
   }
   function updateByA3(){ toggleOpenDoorExtras(isOpenDoorSelected()); }
 
-  // نمایش ستون‌های ترکیب کاغذ با توجه به گام فلوت
+  // نمایش ستون‌های ترکیب کاغذ بر اساس گام فلوت
   function showWrap(id, show){
     const el = document.getElementById(id);
     if(!el) return;
@@ -421,12 +388,10 @@
   function updateFluteColumns(){
     const t = currentFluteText();
     let showGlue=true, showBE=true, showMid=true, showC=true, showBottom=true;
-
     if (/(^|[^A-Z])C([^A-Z]|$)/.test(t)) { showGlue = true; showC = true; showBottom = true; showBE = false; showMid = false; }
     else if (/(^|[^A-Z])D([^A-Z]|$)/.test(t)) { showGlue = true; showBE = true; showBottom = true; showC = false; showMid = false; }
     else if (/(^|[^A-Z])E([^A-Z]|$)/.test(t)) { showGlue = true; showBE = true; showBottom = true; showC = false; showMid = false; }
     else if (/(^|[^A-Z])B([^A-Z]|$)/.test(t)) { showGlue = true; showBE = true; showBottom = true; showC = false; showMid = false; }
-
     showWrap('wrap-glue',   showGlue);
     showWrap('wrap-be',     showBE);
     showWrap('wrap-mid',    showMid);
@@ -435,21 +400,18 @@
   }
 
   // اسپینر
-  const btnSpinner = document.getElementById('btnSpinner');
-  document.getElementById('priceForm')?.addEventListener('submit', ()=>{ btnSpinner?.classList.remove('d-none'); });
+  document.getElementById('priceForm')?.addEventListener('submit', ()=> {
+    document.getElementById('btnSpinner')?.classList.remove('d-none');
+  });
 
   window.addEventListener('load', function(){
     updateByA3();
     updateFluteColumns();
   });
   document.getElementById('id_A3_door_type')?.addEventListener('change', updateByA3);
-
   const d31 = document.getElementById('id_D31_flute');
   d31?.addEventListener('change', updateFluteColumns);
   d31?.addEventListener('input',  updateFluteColumns);
-  if (window.jQuery && jQuery.fn && jQuery.fn.select2 && d31) {
-    jQuery(d31).on('change.select2', updateFluteColumns);
-  }
 })();
 </script>
 

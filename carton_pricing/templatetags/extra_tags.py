@@ -23,3 +23,10 @@ def intcomma0(value):
         except Exception:
             return value
     return format(n, ",")
+
+@register.filter
+def dict_get(d, key):
+    try:
+        return (d or {}).get(str(key)) or (d or {}).get(int(key))
+    except Exception:
+        return None

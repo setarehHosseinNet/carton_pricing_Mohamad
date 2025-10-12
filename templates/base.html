@@ -57,7 +57,17 @@
             <li><a class="dropdown-item" href="{% url 'carton_pricing:customer_create' %}">+ مشتری جدید</a></li>
           </ul>
         </li>
-
+ <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {% if url_name in 'customer_list customer_create customer_update customer_invoices' %}active{% endif %}"
+             href="#" id="custMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            سفارش ها
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="custMenu">
+            <li><a class="dropdown-item" href="{% url 'carton_pricing:orders_with_rahkaran' %}">دارای شماره راهکاران</a></li>
+            <li><a class="dropdown-item"href="{% url 'carton_pricing:orders_without_rahkaran' %}">بدون شماره راهکاران</a></li>
+          </ul>
+        </li>
+</li>
         <li class="nav-item">
           <a class="nav-link {% if url_name == 'formulas' or url_name == 'formula_list' %}active{% endif %}"
              href="{% url 'carton_pricing:formulas' %}">

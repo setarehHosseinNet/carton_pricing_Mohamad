@@ -635,16 +635,18 @@ from .models import OverheadItem
 class OverheadItemForm(forms.ModelForm):
     class Meta:
         model = OverheadItem
-        fields = ["name", "unit_cost", "is_active"]
+        fields = ["name", "unit_cost", "basis","is_active"]
         labels = {
             "name": "نام هزینه",
             "unit_cost": "هزینهٔ واحد",
+            "basis": "مبنای محاسبه",
             "is_active": "فعال؟",
         }
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "unit_cost": forms.NumberInput(attrs={"class": "form-control", "step": "0.01", "min": "0"}),
             "is_active": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+            "basis": forms.RadioSelect(choices=OverheadItem.Basis.choices),
         }
 
 # carton_pricing/forms.py

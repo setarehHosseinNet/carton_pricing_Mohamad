@@ -91,4 +91,7 @@ urlpatterns = [
     path("overheads/<int:pk>/delete/", OverheadItemDeleteView.as_view(), name="overhead_delete"),
 
     path("quotation/<int:pk>/rahkaran/", views.link_rahkaran_invoice, name="link_rahkaran_invoice"),
+
+    path("rahkaran/with/", views.orders_with_rahkaran, name="orders_with_rahkaran"),
+    path("rahkaran/without/", views.orders_without_rahkaran, name="orders_without_rahkaran"),
 ]
