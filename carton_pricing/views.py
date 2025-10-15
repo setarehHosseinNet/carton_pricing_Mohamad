@@ -1351,7 +1351,7 @@ def price_form_view(request) -> Any:
                 e28 = float((wf * float(e20_len)) / (f24 if f24 > 0 else 1))
                 out.append(SimpleNamespace(sheet_width=wf, f24=f24, I22=i22, E28=e28))
             except Exception as e:
-                logger.warning("row calc failed (w=%s): %r", w, e)
+                logger.warning("row calc.html failed (w=%s): %r", w, e)
         return out
 
     def pick_best_default(rows: list) -> Optional[Any]:

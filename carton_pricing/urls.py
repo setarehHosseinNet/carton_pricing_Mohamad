@@ -22,7 +22,7 @@ from .views_paper_groups import (
     PaperGroupDeleteView,
     GroupBulkPriceView,
 )
-
+from .views_diecut import diecut_calc_api
 # کاغذها (لیست/ایجاد/ویرایش)
 from .views_papers import (
     PaperListView,
@@ -94,4 +94,6 @@ urlpatterns = [
 
     path("rahkaran/with/", views.orders_with_rahkaran, name="orders_with_rahkaran"),
     path("rahkaran/without/", views.orders_without_rahkaran, name="orders_without_rahkaran"),
+
+    path("api/diecut/calc.html/", diecut_calc_api, name="diecut_calc_api"),
 ]

@@ -51,7 +51,7 @@ class CalcFormula:
         # فقط پاس می‌دهیم؛ بعداً واقعی می‌شود
         return None
 
-    # اگر در کد شما به اسم run/calc صدا می‌شود:
+    # اگر در کد شما به اسم run/calc.html صدا می‌شود:
     def calc(self, expr: str, **kwargs) -> Any:
         return self.evaluate(expr, **kwargs)
 

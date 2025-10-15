@@ -267,6 +267,17 @@ class PriceQuotation(TimeStamped):
         (CARTON_TRAY, "کفی"),
     ]
 
+    KIND_CHOICES = [
+        ("normal", "معمولی"),
+        ("consumable", "مصرفی"),
+        ("diecut", "دایکاتی"),
+        ("kafi", "کفی"),
+    ]
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default="normal")
+
+    # ورودی‌های ویژهٔ دایکاتی (ذخیره فقط برای ردیابی/ویرایش بعدی)
+    diecut_inputs = models.JSONField(default=dict, blank=True, null=True)
+    diecut_results = models.JSONField(default=dict, blank=True, null=True)
     carton_type = models.CharField(
         "نوع کارتن",
         max_length=10,

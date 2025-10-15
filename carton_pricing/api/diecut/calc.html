@@ -1,0 +1,45 @@
+<div id="diecut-fields" class="grid md:grid-cols-6 gap-3">
+  <select name="flute" id="dc_flute">
+    <option value="C">C</option><option value="B">B</option><option value="E">E</option>
+  </select>
+  <input name="layers" id="dc_layers" type="number" value="3" min="3" step="2" />
+  <select name="door_code" id="dc_door">
+    <option value="1211">1211 - چهاردرب</option>
+    <option value="2211">2211 - دوجداره</option>
+  </select>
+  <input name="length_cm" id="dc_L" type="number" step="0.1" placeholder="طول (cm)" />
+  <input name="width_cm"  id="dc_W" type="number" step="0.1" placeholder="عرض (cm)" />
+  <input name="height_cm" id="dc_H" type="number" step="0.1" placeholder="ارتفاع (cm)" />
+  <input name="qty" id="dc_qty" type="number" step="1" placeholder="تیراژ" />
+</div>
+
+<div id="diecut-result" class="mt-4 text-sm border rounded p-3 bg-gray-50"></div>
+
+<script>
+  const ids = ["dc_flute","dc_layers","dc_door","dc_L","dc_W","dc_H","dc_qty"];
+  const post = () => {
+    const body = new URLSearchParams();
+    body.append("flute",  document.getElementById("dc_flute").value);
+    body.append("layers", document.getElementById("dc_layers").value);
+    body.append("door_code",document.getElementById("dc_door").value);
+    body.append("length_cm",document.getElementById("dc_L").value);
+    body.append("width_cm", document.getElementById("dc_W").value);
+    body.append("height_cm",document.getElementById("dc_H").value);
+    body.append("qty",     document.getElementById("dc_qty").value);
+
+    fetch("/api/diecut/calc/", {method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body})
+      .then(r=>r.json()).then(d=>{
+        document.getElementById("diecut-result").innerHTML = `
+          <div><b>طول گسترده:</b> ${d.blank_len_cm} cm</div>
+          <div><b>عرض گسترده:</b> ${d.blank_wid_cm} cm</div>
+          <div><b>تعداد شیت:</b> ${d.sheets}</div>
+          <div><b>n-up:</b> ${d.n_up}</div>
+          <div><b>یادداشت:</b> ${d.note || "—"}</div>
+          <div><b>هزینه مواد:</b> ${d.material_cost}</div>
+          <div><b>هزینه فرایند:</b> ${d.process_cost}</div>
+          <div><b>قیمت کل:</b> ${d.total_cost}</div>
+        `;
+      });
+  };
+  ids.forEach(id=>document.getElementById(id).addEventListener("input", post));
+</script>

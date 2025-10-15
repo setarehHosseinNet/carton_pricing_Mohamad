@@ -1,0 +1,17 @@
+{
+  "machines": {
+    "default": { "min_len_cm": 20, "max_len_cm": 130, "min_wid_cm": 20, "max_wid_cm": 250 }
+  },
+  "flute_allowance_mm": {
+    "B":   { "singlewall": 2.5, "doublewall": 4.0 },
+    "C":   { "singlewall": 3.0, "doublewall": 4.5 },
+    "E":   { "singlewall": 2.0, "doublewall": 3.5 }
+  },
+  "glue_seam_mm": { "inside": 25, "outside": 30 },
+  "slot_depth_mm": { "std": 35 },
+  "door_codes": {
+    "1211": { "label": "چهاردرب استاندارد", "glue_side": "inside" },
+    "2211": { "label": "دوجداره با چسب بیرون", "glue_side": "outside" }
+  },
+  "waste_ratio": 0.03
+}
